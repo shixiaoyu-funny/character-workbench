@@ -2,6 +2,7 @@
 
 import { PRESETS } from './catalog.js';
 import { CONFIG_KEY } from './state.js';
+import { FACE_BACKUP_KEY, lockReference, unlockReference } from './face.js';
 import { nextTheme, resolveTheme } from './theme.js';
 import { viewModel } from './view.js';
 
@@ -76,8 +77,15 @@ function renderCenter(center) {
     const more = group.more
       ? `<details><summary>更多</summary>${group.more.options.map(renderButton).join('')}</details>`
       : '';
-    return `<details open><summary>${esc(group.title)}</summary>${fields}${more}</details>`;
+    const disabled = group.locked ? ' disabled' : '';
+    return `<details open${disabled}><summary>${esc(group.title)}</summary>${fields}${more}</details>`;
   }).join('');
+}
+
+function renderReference(reference) {
+  const removeHidden = reference.locked ? '' : ' hidden';
+  const note = reference.locked ? `<p id="face-lock-note">${esc(reference.message)}</p>` : '';
+  return `<label id="reference-upload">${esc(reference.label)}<input type="file" id="reference-file" accept="image/*"></label><button type="button" id="remove-reference"${removeHidden}>${esc(reference.removeLabel)}</button>${note}`;
 }
 
 function renderRight(right, warningList) {
@@ -88,7 +96,7 @@ function renderRight(right, warningList) {
       : '';
     return `<div class="gen"><button type="button" data-generate="${esc(button.label)}">${esc(button.label)}</button>${aspects}</div>`;
   }).join('');
-  return `<div id="warnings">${warningHtml}</div>${buttons}<div id="status"></div><div id="reference">${esc(right.reference)}</div><div id="preview">${esc(right.preview)}</div><div id="gallery">${esc(right.gallery)}</div><button type="button" id="open-download">${esc(right.download)}</button>`;
+  return `<div id="warnings">${warningHtml}</div>${buttons}<div id="status"></div><div id="reference">${renderReference(right.reference)}</div><div id="preview">${esc(right.preview)}</div><div id="gallery">${esc(right.gallery)}</div><button type="button" id="open-download">${esc(right.download)}</button>`;
 }
 
 function render(doc, model) {
@@ -119,7 +127,12 @@ function toggleMulti(state, field, value) {
 function onClick(doc, event) {
   const mounted = mounts.get(doc);
   if (!mounted || !event.target?.closest) return;
-  const { store } = mounted;
+  const { store, images } = mounted;
+  if (event.target.closest('#remove-reference')) {
+    images.reference = null;
+    unlockReference(store, doc.defaultView.localStorage);
+    return;
+  }
   const generate = event.target.closest('[data-generate]');
   if (generate) {
     const status = doc.getElementById('status');
@@ -158,11 +171,31 @@ function onClick(doc, event) {
   }
 }
 
+// 参考图上传：读成 data URL 后先写入内存，再锁定，使清空的面部字段不被联动补回。
+function onReferenceFile(doc, input) {
+  const mounted = mounts.get(doc);
+  const file = input.files && input.files[0];
+  if (!mounted || !file) return;
+  const view = doc.defaultView;
+  const reader = new view.FileReader();
+  reader.onload = () => {
+    const dataUrl = String(reader.result);
+    if (!dataUrl.startsWith('data:image/')) return;
+    mounted.images.reference = dataUrl;
+    lockReference(mounted.store, view.localStorage, dataUrl);
+  };
+  reader.readAsDataURL(file);
+}
+
 function onChange(doc, event) {
   const mounted = mounts.get(doc);
   const el = event.target;
   if (!mounted || !el?.dataset) return;
   const { store } = mounted;
+  if (el.id === 'reference-file') {
+    onReferenceFile(doc, el);
+    return;
+  }
   if (el.dataset.colorInput === 'append') {
     const field = el.dataset.field;
     const state = store.getState();
@@ -236,9 +269,9 @@ function bindReset(doc) {
   });
 }
 
-export function mount(doc, { store, gallery } = {}) {
+export function mount(doc, { store, gallery, images = { reference: null } } = {}) {
   void gallery;
-  mounts.set(doc, { store });
+  mounts.set(doc, { store, images });
   if (doc.documentElement.dataset.workbenchBound !== '1') {
     doc.documentElement.dataset.workbenchBound = '1';
     doc.addEventListener('click', (event) => onClick(doc, event));
@@ -246,6 +279,13 @@ export function mount(doc, { store, gallery } = {}) {
     bindTheme(doc);
     bindReset(doc);
   }
-  store.subscribe(() => render(doc, viewModel(store.getState())));
+  const paint = () => render(doc, viewModel(store.getState(), { faceLocked: Boolean(images.reference) }));
+  store.subscribe(paint);
   store.hydrate();
+  // 只有备份、内存里没有参考图时不保持锁脸：还原面部并立刻落盘。
+  const view = doc.defaultView;
+  if (!images.reference && view.localStorage.getItem(FACE_BACKUP_KEY) !== null) {
+    unlockReference(store, view.localStorage);
+    store.flush();
+  }
 }

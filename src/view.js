@@ -1,7 +1,7 @@
 // 纯视图模型：把联动后的状态整理成左、中、右三栏控件。
 
 import {
-  OPTIONS, ROLE_GROUPS, PRESETS, ASPECT_OPTIONS,
+  OPTIONS, ROLE_GROUPS, PRESETS, ASPECT_OPTIONS, FACE_FIELDS,
 } from './catalog.js';
 import {
   applyLinkage, optionVisible, fieldVisible, optionDisabled, warnings, orderedOptions,
@@ -45,6 +45,12 @@ const GENERATE_BUTTONS = [
   ['生成完整图片（一键全套）', null],
 ];
 
+// 锁脸说明原文：已开启锁脸模式提示。锁脸时由右栏渲染，重绘不会丢。
+export const FACE_LOCK_MESSAGE = '已开启锁脸模式，当前角色的面部与妆容将由参考图决定。';
+
+// 面部与妆容两个 details 在锁脸时禁用。
+const LOCKED_GROUP_TITLES = new Set(['面部', '妆容']);
+
 function choice(field, value, state, mode) {
   const current = state[field];
   let selected = false;
@@ -76,7 +82,7 @@ function listedOptions(field, state) {
   return [...visible, ...extras];
 }
 
-function buildField(field, state) {
+function buildField(field, state, { forceVisible = false, forceDisabled = false } = {}) {
   if (!fieldVisible(field, state)) return null;
   if (field === 'crossdressing' || field === 'ahoge') {
     return {
@@ -84,7 +90,7 @@ function buildField(field, state) {
       value: true,
       label: FIELD_LABELS[field],
       selected: Boolean(state[field]),
-      disabled: false,
+      disabled: forceDisabled,
       mode: 'switch',
       folded: false,
     };
@@ -115,7 +121,13 @@ function buildField(field, state) {
     };
   }
   const mode = Array.isArray(state[field]) ? 'multi' : 'single';
-  const options = listedOptions(field, state).map((opt) => choice(field, opt.value, state, mode));
+  // 锁脸时面部/妆容字段绕过显隐过滤，全部选项可见。
+  const source = forceVisible ? (OPTIONS[field] || []) : listedOptions(field, state);
+  const options = source.map((opt) => {
+    const built = choice(field, opt.value, state, mode);
+    if (forceDisabled) built.disabled = true;
+    return built;
+  });
   if (options.length === 0) return null;
   const result = { field, label: FIELD_LABELS[field] || field, mode, options };
   if (field === 'mainColors' || field === 'accentColors') result.colorInput = true;
@@ -148,12 +160,13 @@ function buildLeft(state) {
   return { fields, presets };
 }
 
-function buildCenter(state) {
+function buildCenter(state, { faceLocked = false } = {}) {
   return CENTER_GROUPS.map((group) => {
+    const locked = faceLocked && LOCKED_GROUP_TITLES.has(group.title);
     const fields = [];
     const moreOptions = [];
     for (const name of group.fields) {
-      const built = buildField(name, state);
+      const built = buildField(name, state, { forceVisible: locked, forceDisabled: locked });
       if (!built) continue;
       if (built.options) {
         moreOptions.push(...built.options.filter((option) => option.folded));
@@ -164,13 +177,14 @@ function buildCenter(state) {
     }
     return {
       title: group.title,
+      locked,
       fields,
       more: moreOptions.length ? { title: '更多', open: false, options: moreOptions } : null,
     };
   });
 }
 
-function buildRight(state) {
+function buildRight(state, { faceLocked = false } = {}) {
   return {
     buttons: GENERATE_BUTTONS.map(([label, field]) => ({
       label,
@@ -179,19 +193,28 @@ function buildRight(state) {
         options: ASPECT_OPTIONS[field].map((value) => choice(field, value, state, 'single')),
       } : null,
     })),
-    reference: '参考图',
+    reference: {
+      label: '上传参考图',
+      locked: faceLocked,
+      message: faceLocked ? FACE_LOCK_MESSAGE : '',
+      removeLabel: '移除',
+    },
     preview: '还没有图片',
     gallery: '图库是空的',
     download: '下载页',
   };
 }
 
-export function viewModel(state) {
+export function viewModel(state, { faceLocked = false } = {}) {
   const linked = applyLinkage(state);
+  // 锁脸时面部字段用未联动的原值（''/[]），不被联动补回默认脸；其余字段照常联动。
+  const effective = faceLocked
+    ? { ...linked, ...Object.fromEntries(FACE_FIELDS.map((f) => [f, structuredClone(state[f])])) }
+    : linked;
   return {
-    left: buildLeft(linked),
-    center: buildCenter(linked),
-    right: buildRight(linked),
-    warnings: warnings(linked),
+    left: buildLeft(effective),
+    center: buildCenter(effective, { faceLocked }),
+    right: buildRight(effective, { faceLocked }),
+    warnings: warnings(effective),
   };
 }

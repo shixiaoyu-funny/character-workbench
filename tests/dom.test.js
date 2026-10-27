@@ -4,8 +4,12 @@ import test from 'node:test';
 import { JSDOM, VirtualConsole } from 'jsdom';
 
 import { applyLinkage } from '../src/rules.js';
-import { createStore, defaultState } from '../src/state.js';
+import { defaultState } from '../src/state.js';
 import { mount } from '../src/dom.js';
+import {
+  FACE_BACKUP_KEY, backupFace, stripFace,
+  createFaceStore, lockReference, unlockReference,
+} from '../src/face.js';
 
 const HTML = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -26,6 +30,8 @@ const HTML = `<!DOCTYPE html>
   <div id="toast"></div>
 </body>
 </html>`;
+
+const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 function manualSchedule() {
   const jobs = new Map();
@@ -50,14 +56,16 @@ function setup(t, { beforeMount, matchMedia, virtualConsole } = {}) {
   const { document } = window;
   if (matchMedia) window.matchMedia = matchMedia;
   if (beforeMount) beforeMount(window);
-  const store = createStore({
+  const images = { reference: null };
+  const store = createFaceStore({
+    images,
     storage: window.localStorage,
     schedule: manualSchedule(),
     applyLinkage,
   });
-  mount(document, { store, gallery: {} });
+  mount(document, { store, gallery: {}, images });
   t.after(() => window.close());
-  return { window, document, store };
+  return { window, document, store, images };
 }
 
 function buttonByText(document, text) {
@@ -248,6 +256,69 @@ test('main.js boots the workbench with the browser timer and toast', () => {
   assert.match(source, /schedule:\s*\{ in: \(ms, fn\) => setTimeout\(fn, ms\), cancel: clearTimeout \}/);
   assert.match(source, /getElementById\(['"]toast['"]\)/);
   assert.match(source, /mount\(/);
+  assert.match(source, /createFaceStore\(/);
+  assert.match(source, /\{ reference: null \}/);
   assert.doesNotMatch(source, /\/api\/generate/);
   assert.doesNotMatch(source, /\bfetch\s*\(/);
+});
+
+function groupBySummary(document, title) {
+  const found = [...document.querySelectorAll('#col-center details')]
+    .find((el) => el.querySelector('summary')?.textContent.trim() === title);
+  assert.ok(found, `missing group ${title}`);
+  return found;
+}
+
+test('locking a reference disables the face and makeup panels and strips the face', (t) => {
+  const { window, document, store, images } = setup(t);
+  assert.ok(document.querySelector('#reference input[type="file"]'));
+  assert.equal(document.body.textContent.includes('上传参考图'), true);
+  const face = groupBySummary(document, '面部');
+  assert.equal(face.hasAttribute('disabled'), false);
+  const remove = buttonByText(document, '移除');
+  assert.equal(remove.hidden, true);
+
+  images.reference = PNG;
+  assert.equal(lockReference(store, window.localStorage, PNG), true);
+
+  assert.equal(groupBySummary(document, '面部').hasAttribute('disabled'), true);
+  assert.equal(groupBySummary(document, '妆容').hasAttribute('disabled'), true);
+  assert.equal(store.getState().faceShape, '');
+  assert.equal(store.getState().hairStyle, '双马尾（高/低）');
+  const backup = JSON.parse(window.localStorage.getItem(FACE_BACKUP_KEY));
+  assert.equal(backup.faceShape, '鹅蛋脸（标准）');
+  assert.equal(document.body.textContent.includes('已开启锁脸模式，当前角色的面部与妆容将由参考图决定。'), true);
+  assert.equal(buttonByText(document, '移除').hidden, false);
+  assert.equal(JSON.stringify(store.getState()).includes('data:image/'), false);
+  assert.equal(JSON.stringify(window.localStorage.getItem('myCharacterConfig')).includes('data:image/'), false);
+
+  control(document, 'faceShape', '鹅蛋脸（标准）').click();
+  control(document, 'lipstick', '自然色').click();
+  assert.equal(store.getState().faceShape, '');
+
+  buttonByText(document, '移除').click();
+  assert.equal(store.getState().faceShape, '鹅蛋脸（标准）');
+  assert.equal(store.getState().lipstick, '自然色');
+  assert.equal(window.localStorage.getItem(FACE_BACKUP_KEY), null);
+  assert.equal(groupBySummary(document, '面部').hasAttribute('disabled'), false);
+  assert.equal(groupBySummary(document, '妆容').hasAttribute('disabled'), false);
+  assert.equal(document.body.textContent.includes('已开启锁脸模式'), false);
+  assert.equal(buttonByText(document, '移除').hidden, true);
+  control(document, 'faceShape', '圆脸（幼态）').click();
+  assert.equal(store.getState().faceShape, '圆脸（幼态）');
+});
+
+test('a leftover backup without a reference restores the face and flushes', (t) => {
+  const { window, document, store } = setup(t, {
+    beforeMount(win) {
+      win.localStorage.setItem('myCharacterConfig', JSON.stringify(stripFace(defaultState())));
+      win.localStorage.setItem(FACE_BACKUP_KEY, JSON.stringify(backupFace(defaultState())));
+    },
+  });
+  assert.equal(store.getState().faceShape, '鹅蛋脸（标准）');
+  assert.equal(window.localStorage.getItem(FACE_BACKUP_KEY), null);
+  const saved = JSON.parse(window.localStorage.getItem('myCharacterConfig'));
+  assert.equal(saved.faceShape, '鹅蛋脸（标准）');
+  assert.equal(document.body.textContent.includes('已开启锁脸模式'), false);
+  assert.equal(groupBySummary(document, '面部').hasAttribute('disabled'), false);
 });
