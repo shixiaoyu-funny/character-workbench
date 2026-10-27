@@ -56,10 +56,18 @@ function takeSeed(randomSeed, used) {
   return seed;
 }
 
-// 基准立绘永远用新种子；有上传图时只带那一张。其余图种优先用已锁定的基准。
-function planShot({ kind, gallery, images, randomSeed, used }) {
+// 一次点击开始时拍下上传图和已锁定基准。同一批里的每一张都用这份快照。
+function captureSnapshot(gallery, images) {
   const upload = images && images.reference ? images.reference : null;
-  const locked = typeof gallery.base === 'function' ? gallery.base() : null;
+  const live = gallery && typeof gallery.base === 'function' ? gallery.base() : null;
+  const base = live && live.dataUrl ? { dataUrl: live.dataUrl, seed: live.seed } : null;
+  return { upload, base };
+}
+
+// 基准立绘永远用新种子；有上传图时只带那一张。其余图种优先用已锁定的基准。
+function planShot({ kind, snapshot, randomSeed, used }) {
+  const upload = snapshot.upload;
+  const locked = snapshot.base;
   if (kind === '基准立绘') {
     return {
       seed: takeSeed(randomSeed, used),
@@ -76,10 +84,10 @@ function planShot({ kind, gallery, images, randomSeed, used }) {
   return { seed: takeSeed(randomSeed, used), referenceImages: [], hasReference: false };
 }
 
-async function produceOne({ kind, state, gallery, images, fetcher, randomSeed, used }) {
-  const plan = planShot({ kind, gallery, images, randomSeed, used });
+async function produceOne({ kind, state, snapshot, fetcher, randomSeed, used }) {
+  const plan = planShot({ kind, snapshot, randomSeed, used });
   let referenceImages = plan.referenceImages;
-  let hasReference = plan.hasReference;
+  const hasReference = plan.hasReference;
   let styleReference = false;
   if (kind === 'Q版形象') {
     const data = await fetcher('/api/chibi-style', { method: 'GET' });
@@ -87,7 +95,6 @@ async function produceOne({ kind, state, gallery, images, fetcher, randomSeed, u
     if (style) {
       referenceImages = [...referenceImages, style];
       styleReference = true;
-      hasReference = true;
     }
   }
   const built = buildPrompt(state, kind, { hasReference, styleReference });
@@ -123,12 +130,14 @@ export async function generateKind({
   fetcher,
   now = () => Date.now(),
   randomSeed = defaultSeed,
+  snapshot,
 }) {
+  const frozen = snapshot || captureSnapshot(gallery, images);
   const count = kind === '基准立绘' ? 4 : 1;
   const used = new Set();
   const items = [];
   for (let i = 0; i < count; i += 1) {
-    items.push(await produceOne({ kind, state, gallery, images, fetcher, randomSeed, used }));
+    items.push(await produceOne({ kind, state, snapshot: frozen, fetcher, randomSeed, used }));
   }
   return stamp(gallery, items, now);
 }
@@ -141,14 +150,15 @@ export async function generateSuite({
   now = () => Date.now(),
   randomSeed = defaultSeed,
 }) {
-  if (!gallery.base()) {
-    await generateKind({ kind: '基准立绘', state, gallery, images, fetcher, now, randomSeed });
+  const snapshot = captureSnapshot(gallery, images);
+  if (!snapshot.base) {
+    await generateKind({ kind: '基准立绘', state, gallery, images, fetcher, now, randomSeed, snapshot });
     return { stopped: true };
   }
   const used = new Set();
   const items = [];
   for (const kind of SUITE) {
-    items.push(await produceOne({ kind, state, gallery, images, fetcher, randomSeed, used }));
+    items.push(await produceOne({ kind, state, snapshot, fetcher, randomSeed, used }));
   }
   stamp(gallery, items, now);
   return { stopped: false };

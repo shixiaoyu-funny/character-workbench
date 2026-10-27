@@ -107,11 +107,20 @@ function collect(state, fields, { skipFace = false } = {}) {
   return terms;
 }
 
+function colorWord(value) {
+  if (typeof value === 'string'
+    && (/^#[0-9a-fA-F]{3}$/.test(value) || /^#[0-9a-fA-F]{6}$/.test(value))) {
+    return value;
+  }
+  return COLOR_WORDS[value];
+}
+
 // 配色句：主色/辅色英文连接，超出的写权重句；预设非空时追加该预设的 tags。
+// 命名色走 COLOR_WORDS；自由取色的 #rgb / #rrggbb 原样作为色词，权重与命名色相同。
 function colorPhrases(state) {
   const phrases = [];
-  const main = (state.mainColors || []).map((c) => COLOR_WORDS[c]).filter(Boolean);
-  const accent = (state.accentColors || []).map((c) => COLOR_WORDS[c]).filter(Boolean);
+  const main = (state.mainColors || []).map(colorWord).filter(Boolean);
+  const accent = (state.accentColors || []).map(colorWord).filter(Boolean);
   // 没有主色和辅色时不写颜色句；预设非空时仍追加该预设的 tags。
   if (main.length > 0) phrases.push(`${main.slice(0, 3).join(' and ')} clothes`);
   for (const color of main.slice(3)) phrases.push(`(${color} clothes:0.5)`);

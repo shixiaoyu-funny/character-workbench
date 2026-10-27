@@ -150,6 +150,14 @@ test('chibi with reference and style: lock sentence then style sentence first', 
   assert.equal(p.aspect, '1:1');
 });
 
+test('chibi style image alone does not lock the face', () => {
+  const p = buildPrompt(defaultState(), 'Q版形象', { styleReference: true });
+  assert.ok(p.positive.startsWith('图1的人物，使用图2的Q版画风'));
+  assert.equal(p.positive.includes('(same face as reference:1.5)'), false);
+  assert.ok(p.positive.includes('oval face'));
+  assert.ok(p.positive.includes('light blush'));
+});
+
 test('color scheme: main and accent sentences with preset tags', () => {
   const s = { ...defaultState(), mainColors: ['黑', '红'], accentColors: ['金'] };
   const p = buildPrompt(s, '基准立绘', {});
@@ -168,6 +176,30 @@ test('color scheme: sixth accent color becomes a weight phrase', () => {
   const p = buildPrompt(s, '基准立绘', {});
   assert.ok(p.positive.includes('gold and silver and white and red and black accents'));
   assert.ok(p.positive.includes('(gray accents:0.5)'));
+});
+
+test('hex colors use the same three-primary and five-accent weighting', () => {
+  const mixed = buildPrompt({
+    ...defaultState(),
+    mainColors: ['黑', '#c71585'],
+    accentColors: ['#abc'],
+  }, '基准立绘', {});
+  assert.ok(mixed.positive.includes('black and #c71585 clothes'));
+  assert.ok(mixed.positive.includes('#abc accents'));
+
+  const fourth = buildPrompt({
+    ...defaultState(),
+    mainColors: ['黑', '红', '白', '#c71585'],
+  }, '基准立绘', {});
+  assert.ok(fourth.positive.includes('black and red and white clothes'));
+  assert.ok(fourth.positive.includes('(#c71585 clothes:0.5)'));
+
+  const sixth = buildPrompt({
+    ...defaultState(),
+    accentColors: ['金', '银', '白', '红', '黑', '#C71585'],
+  }, '基准立绘', {});
+  assert.ok(sixth.positive.includes('gold and silver and white and red and black accents'));
+  assert.ok(sixth.positive.includes('(#C71585 accents:0.5)'));
 });
 
 test('color scheme: preset tags are appended, no colors means no color sentence', () => {

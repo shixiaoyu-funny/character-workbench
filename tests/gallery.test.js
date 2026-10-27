@@ -324,6 +324,83 @@ test('chibi can send the style image alone when there is no character image', as
   assert.equal(body.seed, 8);
   assert.deepEqual(body.referenceImages, [STYLE]);
   assert.equal(body.prompt.includes(STYLE_SENTENCE), true);
+  assert.equal(body.prompt.includes(LOCK), false);
+  assert.equal(body.prompt.includes('oval face'), true);
+});
+
+test('a base-portrait batch keeps the upload captured when the click starts', async () => {
+  const gallery = createGallery();
+  const images = { reference: UPLOAD };
+  const nextUpload = 'data:image/png;base64,NEXT';
+  let flipped = false;
+  const { calls, fetcher } = recordingFetcher();
+  const wrapped = async (url, init) => {
+    const result = await fetcher(url, init);
+    if (!flipped) {
+      flipped = true;
+      images.reference = nextUpload;
+      const extra = gallery.addBatch([item({ seed: 99, dataUrl: 'data:image/png;base64,NEW' })]);
+      gallery.select(extra.items[0].id);
+      gallery.lockSelected();
+    }
+    return result;
+  };
+  await generateKind({
+    kind: '基准立绘',
+    state: defaultState(),
+    gallery,
+    images,
+    fetcher: wrapped,
+    randomSeed: sequence(3),
+  });
+  const bodies = postsOf(calls);
+  assert.equal(bodies.length, 4);
+  assert.deepEqual(bodies.map((body) => body.seed), [3, 4, 5, 6]);
+  for (const body of bodies) {
+    assert.deepEqual(body.referenceImages, [UPLOAD]);
+    assert.equal(body.prompt.includes(LOCK), true);
+  }
+  assert.equal(gallery.base().seed, 99);
+  assert.equal(images.reference, nextUpload);
+});
+
+test('a follow-up suite keeps the base captured when the click starts', async () => {
+  const gallery = createGallery();
+  lockBase(gallery, 42, BASE);
+  const other = gallery.addBatch([item({ seed: 7, dataUrl: 'data:image/png;base64,NEW', kind: '基准立绘' })]);
+  gallery.select(gallery.batches()[0].items[0].id);
+  assert.equal(gallery.lockSelected(), 42);
+  const images = { reference: null };
+  let flipped = false;
+  const { calls, fetcher } = recordingFetcher({ styleImage: STYLE });
+  const wrapped = async (url, init) => {
+    const result = await fetcher(url, init);
+    if (!flipped) {
+      flipped = true;
+      images.reference = UPLOAD;
+      gallery.select(other.items[0].id);
+      gallery.lockSelected();
+    }
+    return result;
+  };
+  await generateSuite({
+    state: defaultState(),
+    gallery,
+    images,
+    fetcher: wrapped,
+    randomSeed: () => {
+      throw new Error('should reuse the base seed');
+    },
+  });
+  const bodies = postsOf(calls);
+  assert.equal(bodies.length, 4);
+  assert.deepEqual(bodies.map((body) => body.seed), [42, 42, 42, 42]);
+  assert.deepEqual(bodies[0].referenceImages, [BASE]);
+  assert.deepEqual(bodies[1].referenceImages, [BASE]);
+  assert.deepEqual(bodies[2].referenceImages, [BASE]);
+  assert.deepEqual(bodies[3].referenceImages, [BASE, STYLE]);
+  assert.equal(gallery.base().seed, 7);
+  assert.equal(images.reference, UPLOAD);
 });
 
 test('chibi without a style image sends only the character reference', async () => {
