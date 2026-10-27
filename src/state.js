@@ -59,6 +59,7 @@ export function sanitizeState(value) {
 export function createStore({ storage, schedule, applyLinkage = (s) => s, onToast = () => {}, delay = 1000 } = {}) {
   let state = defaultState();
   let timerId = null;
+  let pendingSave = null;
   let announcedSave = false;
   const listeners = new Set();
 
@@ -80,10 +81,12 @@ export function createStore({ storage, schedule, applyLinkage = (s) => s, onToas
 
   function scheduleSave() {
     if (timerId !== null) schedule.cancel(timerId);
-    timerId = schedule.in(delay, () => {
+    pendingSave = () => {
       timerId = null;
+      pendingSave = null;
       saveNow();
-    });
+    };
+    timerId = schedule.in(delay, pendingSave);
   }
 
   function resetToDefault() {
@@ -128,10 +131,10 @@ export function createStore({ storage, schedule, applyLinkage = (s) => s, onToas
     flush() {
       if (timerId === null) return;
       schedule.cancel(timerId);
-      const pending = schedule.jobs.get(timerId);
-      if (pending) pending.fn = null;
+      const run = pendingSave;
       timerId = null;
-      saveNow();
+      pendingSave = null;
+      run();
     },
     subscribe(fn) {
       listeners.add(fn);

@@ -262,7 +262,6 @@ test('flush writes pending state immediately and cancels the timer', () => {
   const id = lastJobId(schedule);
   store.flush();
   assert.ok(schedule.jobs.get(id).cancelled, 'timer must be cancelled by flush');
-  assert.equal(schedule.jobs.get(id).fn, null, 'pending job must be cleared by flush');
   assert.equal(JSON.parse(storage.getItem(CONFIG_KEY)).gender, '男');
   assert.deepEqual(toasts, ['配置已保存到本地']);
   // flush with nothing pending must not double-write or toast again
