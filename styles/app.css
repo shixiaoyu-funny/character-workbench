@@ -1,0 +1,25 @@
+:root[data-theme="light"] {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --text: #2c2c34;
+  --accent: #d6336c;
+}
+:root[data-theme="dark"] {
+  --bg: #121216;
+  --panel: #1c1c24;
+  --text: #e8e8ee;
+  --accent: #ff4d8d;
+}
+body {
+  margin: 0;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  transition: background 0.3s, color 0.3s;
+}
+.topbar { position: fixed; top: 12px; right: 12px; z-index: 20; display: flex; gap: 8px; }
+.workbench { display: grid; grid-template-columns: 20% 45% 35%; height: 100vh; }
+.col, #download-view { height: 100%; overflow: auto; background: var(--panel); transition: background 0.3s, color 0.3s; }
+button { color: var(--text); }
+button[aria-pressed="true"] { background: var(--accent); color: #fff; }

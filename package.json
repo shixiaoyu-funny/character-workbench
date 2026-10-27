@@ -1,0 +1,9 @@
+{
+  "name": "ai-role-gen",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "start": "python server/app.py"
+  }
+}

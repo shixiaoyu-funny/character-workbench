@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>角色工作台</title>
+  <link rel="stylesheet" href="/styles/app.css">
+</head>
+<body>
+  <div class="topbar">
+    <button type="button" id="theme-toggle">🌙</button>
+    <button type="button" id="reset">重置</button>
+  </div>
+  <div id="workbench" class="workbench">
+    <div id="col-left" class="col"></div>
+    <div id="col-center" class="col"></div>
+    <div id="col-right" class="col"></div>
+  </div>
+  <div id="download-view" hidden>
+    <button type="button" id="download-back">返回工作台</button>
+    <div id="download-list"></div>
+  </div>
+  <div id="toast"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
