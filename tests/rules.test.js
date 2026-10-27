@@ -230,6 +230,27 @@ test('out-of-range single values fall back to the first visible option; aspects 
   assert.equal(okAspect.turnaroundAspect, '3:2');
 });
 
+test('hex colors stay in mainColors and accentColors', () => {
+  const state = defaultState();
+  assert.equal(optionVisible('mainColors', '#abc', state), true);
+  assert.equal(optionVisible('mainColors', '#a1b2c3', state), true);
+  assert.equal(optionVisible('accentColors', '#ABC', state), true);
+  assert.equal(optionVisible('accentColors', '#A1B2C3', state), true);
+  assert.equal(optionVisible('mainColors', '#abcd', state), false);
+  assert.equal(optionVisible('mainColors', '#12345', state), false);
+  assert.equal(optionVisible('accentColors', '#gg0000', state), false);
+  assert.equal(optionVisible('hairColor', '#fff', state), false);
+  const linked = applyLinkage({
+    ...defaultState(),
+    mainColors: ['黑', '#abc', '#a1b2c3', '#gg0000', 'not-a-color', '#abcd'],
+    accentColors: ['#fff', '#12345', '白', '#GG0000'],
+    hairColor: '#fff',
+  });
+  assert.deepEqual(linked.mainColors, ['黑', '#abc', '#a1b2c3']);
+  assert.deepEqual(linked.accentColors, ['#fff', '白']);
+  assert.notEqual(linked.hairColor, '#fff');
+});
+
 test('invisible multi values are removed, invisible preset selection resets to empty', () => {
   const s = applyLinkage({
     ...defaultState(),

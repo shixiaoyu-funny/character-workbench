@@ -5,5 +5,8 @@
   "scripts": {
     "test": "node --test",
     "start": "python server/app.py"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.3"
   }
 }

@@ -78,8 +78,15 @@ export function fieldVisible(field, state) {
   return true;
 }
 
+function isHexColor(value) {
+  return typeof value === 'string'
+    && (/^#[0-9a-fA-F]{3}$/.test(value) || /^#[0-9a-fA-F]{6}$/.test(value));
+}
+
 export function optionVisible(field, value, state) {
   if (!fieldVisible(field, state)) return false;
+  // 调色板追加的十六进制颜色不在 COLOR_WORDS 里，仍要保留。
+  if ((field === 'mainColors' || field === 'accentColors') && isHexColor(value)) return true;
   const options = OPTIONS[field];
   if (!options) return true; // 布尔开关（crossdressing/ahoge）等无选项字段
   if (!options.some((opt) => opt.value === value)) return false;
