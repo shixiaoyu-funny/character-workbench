@@ -192,6 +192,14 @@ test('catalog surface: ROLE_GROUPS cover all roles, 24 presets with required fie
   assert.equal(new Set(PRESETS.map((p) => p.id)).size, 24);
 });
 
+test('every preset main and accent color is a COLOR_WORDS key', () => {
+  for (const p of PRESETS) {
+    for (const word of [...p.main, ...p.accent]) {
+      assert.ok(COLOR_WORDS[word] !== undefined, `preset ${p.id}: COLOR_WORDS missing ${word}`);
+    }
+  }
+});
+
 test('COLOR_WORDS covers every Chinese color name used by presets', () => {
   const needed = ['黑', '红', '白', '灰', '藏青', '浅灰', '浅蓝', '卡其', '浅棕', '米色', '银',
     '浅粉', '薄荷绿', '浅黄', '浅紫', '粉', '鹅黄', '纯黑', '暗红', '紫', '深灰', '深绿', '金',

@@ -298,7 +298,7 @@ export const PRESETS = [
     ['black elegant suit', 'gold accents', 'dark aura'], ['#0a0a0a', '#b8860b']),
 ];
 export const COLOR_WORDS = {
-  '黑': 'black', '红': 'red', '白': 'white', '灰': 'gray', '藏青': 'navy blue',
+  '黑': 'black', '红': 'red', '白': 'white', '纯白': 'white', '灰': 'gray', '藏青': 'navy blue',
   '浅灰': 'light gray', '浅蓝': 'light blue', '卡其': 'khaki', '浅棕': 'light brown',
   '米色': 'beige', '银': 'silver', '浅粉': 'pastel pink', '薄荷绿': 'mint green',
   '浅黄': 'light yellow', '浅紫': 'pastel purple', '粉': 'pink', '鹅黄': 'light yellow',
