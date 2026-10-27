@@ -265,6 +265,7 @@ function bindReset(doc) {
   doc.getElementById('reset')?.addEventListener('click', () => {
     if (!view.confirm('是否清除本地保存的角色配置并恢复默认？')) return;
     view.localStorage.removeItem(CONFIG_KEY);
+    view.localStorage.removeItem(FACE_BACKUP_KEY);
     view.location.reload();
   });
 }

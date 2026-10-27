@@ -250,6 +250,44 @@ test('reset confirms, deletes the saved config, keeps theme, and reloads', (t) =
   assert.equal(errors.some((error) => error.includes('Not implemented: navigation to another Document')), true);
 });
 
+test('reset clears the face backup along with the saved config', (t) => {
+  let reloaded = false;
+  const { window, document, store, images } = setup(t, {
+    beforeMount(win) {
+      const realLocation = win.location;
+      Object.defineProperty(win.document, 'defaultView', {
+        configurable: true,
+        get() {
+          return new Proxy(win, {
+            get(target, prop) {
+              if (prop === 'location') {
+                return {
+                  href: realLocation.href,
+                  reload() {
+                    assert.equal(win.localStorage.getItem('myCharacterConfig'), null);
+                    assert.equal(win.localStorage.getItem(FACE_BACKUP_KEY), null);
+                    assert.equal(win.localStorage.getItem('theme'), 'dark');
+                    reloaded = true;
+                  },
+                };
+              }
+              return Reflect.get(target, prop);
+            },
+          });
+        },
+      });
+    },
+  });
+  images.reference = PNG;
+  lockReference(store, window.localStorage, PNG);
+  assert.notEqual(window.localStorage.getItem(FACE_BACKUP_KEY), null);
+  window.localStorage.setItem('myCharacterConfig', JSON.stringify(defaultState()));
+  window.localStorage.setItem('theme', 'dark');
+  window.confirm = () => true;
+  document.getElementById('reset').click();
+  assert.equal(reloaded, true);
+});
+
 test('main.js boots the workbench with the browser timer and toast', () => {
   const source = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
   assert.match(source, /DOMContentLoaded/);
