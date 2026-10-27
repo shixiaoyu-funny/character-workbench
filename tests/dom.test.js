@@ -476,6 +476,151 @@ test('a later batch replaces the preview even when an older image was selected',
   assert.equal(document.querySelector('#status').textContent, '尚未设定角色基准，本次不会锁定脸。');
 });
 
+function buttonsByText(document, text) {
+  return [...document.querySelectorAll('button')].filter((el) => el.textContent.trim() === text);
+}
+
+function captureDownloads(window) {
+  const saved = [];
+  const original = window.HTMLAnchorElement.prototype.click;
+  window.HTMLAnchorElement.prototype.click = function patchedClick() {
+    if (this.download) {
+      saved.push({ download: this.download, href: this.href });
+      return;
+    }
+    return original.apply(this, arguments);
+  };
+  return saved;
+}
+
+function sheet(overrides = {}) {
+  return {
+    kind: '基准立绘',
+    aspect: '3:4',
+    seed: 11,
+    positive: '正向甲',
+    negative: '负向甲',
+    dataUrl: PNG,
+    ...overrides,
+  };
+}
+
+test('opening the download page lists one batch and an empty gallery explains itself', (t) => {
+  const gallery = createGallery();
+  const { document, window } = setup(t, { gallery });
+  document.getElementById('open-download').click();
+  assert.equal(document.getElementById('workbench').hidden, true);
+  assert.equal(document.getElementById('download-view').hidden, false);
+  assert.equal(document.getElementById('download-list').textContent, '还没有生成图片');
+  assert.equal(gallery.batches().length, 0);
+
+  document.getElementById('download-back').click();
+  gallery.addBatch([
+    sheet(),
+    sheet({ kind: '三视图', aspect: '16:9', seed: 22, positive: '正向乙', negative: '负向乙', dataUrl: `${PNG}B` }),
+  ]);
+  document.getElementById('open-download').click();
+  const list = document.getElementById('download-list');
+  assert.equal(buttonsByText(list, '下载这张').length, 2);
+  assert.equal(buttonsByText(list, '打包本次').length, 1);
+  assert.equal(list.querySelectorAll('img').length, 2);
+  assert.equal(list.textContent.includes('基准立绘'), true);
+  assert.equal(list.textContent.includes('三视图'), true);
+  assert.equal(list.textContent.includes('还没有生成图片'), false);
+  assert.equal(gallery.batches().length, 1);
+  assert.equal(gallery.batches()[0].items[0].dataUrl, PNG);
+  assert.equal(JSON.stringify(window.localStorage).includes('data:image/'), false);
+  assert.equal(JSON.stringify(window.localStorage).includes('正向甲'), false);
+});
+
+test('a column redraw keeps the open download list and the in-memory gallery', (t) => {
+  const gallery = createGallery();
+  const { document } = setup(t, { gallery });
+  gallery.addBatch([sheet(), sheet({ kind: '三视图', seed: 22 })]);
+  document.getElementById('open-download').click();
+  assert.equal(buttonsByText(document.getElementById('download-list'), '下载这张').length, 2);
+  control(document, 'baseAspect', '9:16').click();
+  assert.equal(document.getElementById('workbench').hidden, true);
+  assert.equal(document.getElementById('download-view').hidden, false);
+  assert.equal(buttonsByText(document.getElementById('download-list'), '下载这张').length, 2);
+  assert.equal(buttonsByText(document.getElementById('download-list'), '打包本次').length, 1);
+  assert.equal(gallery.batches().length, 1);
+});
+
+test('a batch that is not complete has no pack button', (t) => {
+  const gallery = createGallery();
+  const { document } = setup(t, { gallery });
+  const stored = gallery.addBatch([sheet()]);
+  stored.status = 'running';
+  document.getElementById('open-download').click();
+  const list = document.getElementById('download-list');
+  assert.equal(buttonsByText(list, '下载这张').length, 1);
+  assert.equal(buttonsByText(list, '打包本次').length, 0);
+});
+
+test('adding a batch while the download page is open refreshes the list', (t) => {
+  const gallery = createGallery();
+  const { document } = setup(t, { gallery });
+  document.getElementById('open-download').click();
+  assert.equal(document.getElementById('download-list').textContent, '还没有生成图片');
+  gallery.addBatch([sheet({ kind: '三视图' })]);
+  const list = document.getElementById('download-list');
+  assert.equal(list.textContent.includes('还没有生成图片'), false);
+  assert.equal(buttonsByText(list, '下载这张').length, 1);
+  assert.equal(buttonsByText(list, '打包本次').length, 1);
+  assert.equal(document.querySelector('#gallery').textContent.trim(), '图库是空的');
+});
+
+test('download buttons save one png or the batch zip through a temporary anchor', async (t) => {
+  const gallery = createGallery();
+  const { document, window } = setup(t, { gallery });
+  const second = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const stored = gallery.addBatch([
+    sheet(),
+    sheet({ kind: '三视图', aspect: '16:9', seed: 22, positive: '正向乙', negative: '负向乙', dataUrl: second }),
+  ]);
+  stored.createdAt = new Date(2026, 9, 27, 21, 40, 5).getTime();
+  const saved = captureDownloads(window);
+  document.getElementById('open-download').click();
+  const list = document.getElementById('download-list');
+  buttonsByText(list, '下载这张')[1].click();
+  assert.equal(saved[0].download, '02-三视图.png');
+  assert.equal(saved[0].href, second);
+  buttonsByText(list, '打包本次')[0].click();
+  assert.equal(saved[1].download, '角色设定-20261027-214005.zip');
+  const { zipBatch } = await import('../src/download.js');
+  const zipped = zipBatch(gallery.batches()[0]);
+  const comma = saved[1].href.indexOf(',');
+  const bytes = Uint8Array.from(Buffer.from(saved[1].href.slice(comma + 1), 'base64'));
+  assert.deepEqual(bytes, zipped.bytes);
+  assert.equal(document.getElementById('download-view').hidden, false);
+  assert.equal(JSON.stringify(window.localStorage).includes('data:image/'), false);
+  assert.equal(JSON.stringify(window.localStorage).includes('正向乙'), false);
+});
+
+test('a gallery thumbnail context menu downloads that image and stays on the workbench', (t) => {
+  const gallery = createGallery();
+  gallery.addBatch([sheet(), sheet({ kind: '表情差分图', seed: 8 })]);
+  gallery.addBatch([sheet({ kind: '三视图', seed: 9, dataUrl: `${PNG}B` })]);
+  const { document, window } = setup(t, { gallery });
+  const saved = captureDownloads(window);
+  const shots = document.querySelectorAll('#gallery [data-select]');
+  assert.equal(shots.length, 3);
+  const event = new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+  shots[2].querySelector('img').dispatchEvent(event);
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].download, '01-三视图.png');
+  assert.equal(saved[0].href, `${PNG}B`);
+  assert.equal(document.getElementById('workbench').hidden, false);
+  assert.equal(document.getElementById('download-view').hidden, true);
+
+  const previewEvent = new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+  document.querySelector('#preview img').dispatchEvent(previewEvent);
+  assert.equal(previewEvent.defaultPrevented, false);
+  assert.equal(saved.length, 1);
+});
+
 test('the full suite without a base asks for a locked base portrait', async (t) => {
   const gallery = createGallery();
   const { queue, fetcher } = scriptedFetcher();

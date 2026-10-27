@@ -3,12 +3,14 @@
 import { PRESETS } from './catalog.js';
 import { CONFIG_KEY } from './state.js';
 import { FACE_BACKUP_KEY, lockReference, unlockReference } from './face.js';
+import { singleName, zipBatch } from './download.js';
 import { browserFetcher, generateKind, generateSuite } from './generate.js';
 import { nextTheme, resolveTheme } from './theme.js';
 import { viewModel } from './view.js';
 
 const CAPPED = new Set(['handheld', 'visualEffects']);
 const mounts = new WeakMap();
+const watchedGalleries = new WeakSet();
 
 function esc(text) {
   return String(text)
@@ -126,6 +128,103 @@ function galleryHtml(gallery) {
   return items.map((item) => renderShot(item, Boolean(selected && item.id === selected.id))).join('');
 }
 
+function galleryBatches(gallery) {
+  if (!gallery || typeof gallery.batches !== 'function') return [];
+  return gallery.batches();
+}
+
+function locateItem(gallery, id) {
+  for (const batch of galleryBatches(gallery)) {
+    const index = batch.items.findIndex((item) => item.id === id);
+    if (index >= 0) return { batch, item: batch.items[index], index: index + 1 };
+  }
+  return null;
+}
+
+function renderDownloadList(doc, gallery) {
+  const list = doc.getElementById('download-list');
+  if (!list) return;
+  const batches = galleryBatches(gallery);
+  if (!batches.length) {
+    list.textContent = '还没有生成图片';
+    return;
+  }
+  list.innerHTML = batches.map((batch) => {
+    const rows = batch.items.map((item) => (
+      `<div class="download-row"><img src="${esc(item.dataUrl)}" alt="${esc(item.kind)}"><span>${esc(item.kind)}</span><button type="button" data-download-item="${esc(item.id)}">下载这张</button></div>`
+    )).join('');
+    const pack = batch.status === 'complete'
+      ? `<button type="button" data-download-batch="${esc(batch.id)}">打包本次</button>`
+      : '';
+    return `<section class="download-batch">${rows}${pack}</section>`;
+  }).join('');
+}
+
+function saveFile(doc, filename, href) {
+  const link = doc.createElement('a');
+  link.download = filename;
+  link.href = href;
+  doc.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+function bytesToDataUrl(bytes) {
+  let binary = '';
+  const size = 0x8000;
+  for (let i = 0; i < bytes.length; i += size) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + size));
+  }
+  return `data:application/zip;base64,${btoa(binary)}`;
+}
+
+function downloadPng(doc, item, index) {
+  saveFile(doc, singleName(index, item.kind), item.dataUrl);
+}
+
+function downloadZip(doc, batch) {
+  const zipped = zipBatch(batch);
+  saveFile(doc, zipped.filename, bytesToDataUrl(zipped.bytes));
+}
+
+function showDownload(doc) {
+  const mounted = mounts.get(doc);
+  const workbench = doc.getElementById('workbench');
+  const view = doc.getElementById('download-view');
+  if (workbench) workbench.hidden = true;
+  if (view) view.hidden = false;
+  renderDownloadList(doc, mounted?.gallery);
+}
+
+function showWorkbench(doc) {
+  const workbench = doc.getElementById('workbench');
+  const view = doc.getElementById('download-view');
+  if (workbench) workbench.hidden = false;
+  if (view) view.hidden = true;
+}
+
+function watchGallery(doc, gallery) {
+  if (!gallery || typeof gallery.addBatch !== 'function' || watchedGalleries.has(gallery)) return;
+  watchedGalleries.add(gallery);
+  const original = gallery.addBatch.bind(gallery);
+  gallery.addBatch = (items) => {
+    const batch = original(items);
+    renderDownloadList(doc, gallery);
+    return batch;
+  };
+}
+
+function onGalleryMenu(doc, event) {
+  const mounted = mounts.get(doc);
+  if (!mounted || !event.target?.closest) return;
+  const shot = event.target.closest('#gallery [data-select]');
+  if (!shot) return;
+  event.preventDefault();
+  const located = locateItem(mounted.gallery, shot.dataset.select);
+  if (!located) return;
+  downloadPng(doc, located.item, located.index);
+}
+
 function render(doc, model) {
   const mounted = mounts.get(doc) || {};
   const left = doc.getElementById('col-left');
@@ -221,6 +320,26 @@ function toggleMulti(state, field, value) {
 function onClick(doc, event) {
   const mounted = mounts.get(doc);
   if (!mounted || !event.target?.closest) return;
+  if (event.target.closest('#open-download')) {
+    showDownload(doc);
+    return;
+  }
+  if (event.target.closest('#download-back')) {
+    showWorkbench(doc);
+    return;
+  }
+  const downloadItem = event.target.closest('[data-download-item]');
+  if (downloadItem) {
+    const located = locateItem(mounted.gallery, downloadItem.dataset.downloadItem);
+    if (located) downloadPng(doc, located.item, located.index);
+    return;
+  }
+  const downloadBatch = event.target.closest('[data-download-batch]');
+  if (downloadBatch) {
+    const batch = galleryBatches(mounted.gallery).find((entry) => entry.id === downloadBatch.dataset.downloadBatch);
+    if (batch) downloadZip(doc, batch);
+    return;
+  }
   const { store, images } = mounted;
   if (event.target.closest('#remove-reference')) {
     images.reference = null;
@@ -383,9 +502,11 @@ export function mount(doc, { store, gallery, images = { reference: null }, fetch
     doc.documentElement.dataset.workbenchBound = '1';
     doc.addEventListener('click', (event) => onClick(doc, event));
     doc.addEventListener('change', (event) => onChange(doc, event));
+    doc.addEventListener('contextmenu', (event) => onGalleryMenu(doc, event));
     bindTheme(doc);
     bindReset(doc);
   }
+  watchGallery(doc, gallery);
   store.subscribe(record.paint);
   store.hydrate();
   // 只有备份、内存里没有参考图时不保持锁脸：还原面部并立刻落盘。
