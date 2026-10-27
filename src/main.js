@@ -1,5 +1,6 @@
 import { applyLinkage } from './rules.js';
 import { createFaceStore } from './face.js';
+import { createGallery } from './gallery.js';
 import { mount } from './dom.js';
 
 function showToast(message) {
@@ -9,6 +10,7 @@ function showToast(message) {
 
 document.addEventListener('DOMContentLoaded', () => {
   const images = { reference: null };
+  const gallery = createGallery();
   const store = createFaceStore({
     images,
     storage: localStorage,
@@ -16,5 +18,5 @@ document.addEventListener('DOMContentLoaded', () => {
     applyLinkage,
     onToast: showToast,
   });
-  mount(document, { store, gallery: {}, images });
+  mount(document, { store, gallery, images });
 });

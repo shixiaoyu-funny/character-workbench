@@ -6,6 +6,7 @@ import { JSDOM, VirtualConsole } from 'jsdom';
 import { applyLinkage } from '../src/rules.js';
 import { defaultState } from '../src/state.js';
 import { mount } from '../src/dom.js';
+import { createGallery } from '../src/gallery.js';
 import {
   FACE_BACKUP_KEY, backupFace, stripFace,
   createFaceStore, lockReference, unlockReference,
@@ -50,7 +51,7 @@ function manualSchedule() {
   };
 }
 
-function setup(t, { beforeMount, matchMedia, virtualConsole } = {}) {
+function setup(t, { beforeMount, matchMedia, virtualConsole, gallery, fetcher } = {}) {
   const dom = new JSDOM(HTML, { url: 'http://127.0.0.1/', virtualConsole });
   const { window } = dom;
   const { document } = window;
@@ -63,9 +64,41 @@ function setup(t, { beforeMount, matchMedia, virtualConsole } = {}) {
     schedule: manualSchedule(),
     applyLinkage,
   });
-  mount(document, { store, gallery: {}, images });
+  const resolvedGallery = gallery === undefined ? {} : gallery;
+  mount(document, { store, gallery: resolvedGallery, images, fetcher });
   t.after(() => window.close());
-  return { window, document, store, images };
+  return { window, document, store, images, gallery: resolvedGallery };
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function tick() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+function scriptedFetcher() {
+  const queue = [];
+  const fetcher = (url, init) => {
+    const job = deferred();
+    queue.push({ url, init, ...job, done: false });
+    return job.promise;
+  };
+  return { queue, fetcher };
+}
+
+async function respondNext(queue, value) {
+  const job = queue.find((item) => !item.done);
+  job.done = true;
+  job.resolve(value);
+  await tick();
 }
 
 function buttonByText(document, text) {
@@ -133,17 +166,14 @@ test('choosing 无 clears that multi-select', (t) => {
   assert.deepEqual(store.getState().specialMakeup, []);
 });
 
-test('download entry and generate buttons report that generation is not connected', (t) => {
+test('download entry, empty preview, and aspect controls render', (t) => {
   const { document } = setup(t);
   const download = document.querySelector('#open-download');
   assert.ok(download);
   assert.equal(download.textContent.trim(), '下载页');
-  assert.equal(document.body.textContent.includes('还没有图片'), true);
-  assert.equal(document.body.textContent.includes('图库是空的'), true);
-  for (const label of ['生成基准立绘', '生成三视图', '生成表情差分图', '生成服饰拆解图', '生成Q版形象', '生成完整图片（一键全套）']) {
-    buttonByText(document, label).click();
-    assert.equal(document.querySelector('#status').textContent, '生成功能尚未接入');
-  }
+  assert.equal(document.querySelector('#preview').textContent.trim(), '还没有图片');
+  assert.equal(document.querySelector('#gallery').textContent.trim(), '图库是空的');
+  assert.equal(buttonByText(document, '设为当前角色基准').textContent.trim(), '设为当前角色基准');
   for (const label of ['生成基准立绘', '生成三视图', '生成服饰拆解图']) {
     assert.ok(buttonByText(document, label).parentElement.querySelector('[data-field$="Aspect"]'), label);
   }
@@ -295,9 +325,11 @@ test('main.js boots the workbench with the browser timer and toast', () => {
   assert.match(source, /getElementById\(['"]toast['"]\)/);
   assert.match(source, /mount\(/);
   assert.match(source, /createFaceStore\(/);
+  assert.match(source, /createGallery\(/);
   assert.match(source, /\{ reference: null \}/);
   assert.doesNotMatch(source, /\/api\/generate/);
   assert.doesNotMatch(source, /\bfetch\s*\(/);
+  assert.doesNotMatch(source, /localStorage\.setItem\([^)]*dataUrl/);
 });
 
 function groupBySummary(document, title) {
@@ -359,4 +391,101 @@ test('a leftover backup without a reference restores the face and flushes', (t) 
   assert.equal(saved.faceShape, '鹅蛋脸（标准）');
   assert.equal(document.body.textContent.includes('已开启锁脸模式'), false);
   assert.equal(groupBySummary(document, '面部').hasAttribute('disabled'), false);
+});
+
+const LABELS = ['生成基准立绘', '生成三视图', '生成表情差分图', '生成服饰拆解图', '生成Q版形象', '生成完整图片（一键全套）'];
+
+function generateButtons(document) {
+  return LABELS.map((label) => buttonByText(document, label));
+}
+
+test('generating base portraits fills the gallery and keeps progress across redraws', async (t) => {
+  const gallery = createGallery();
+  const { queue, fetcher } = scriptedFetcher();
+  const { window, document } = setup(t, { gallery, fetcher });
+  buttonByText(document, '生成基准立绘').click();
+  assert.equal(document.querySelector('#status').textContent, '正在生成基准立绘（1/4）');
+  assert.equal(generateButtons(document).every((button) => button.disabled), true);
+
+  await respondNext(queue, { dataUrl: PNG, seed: JSON.parse(queue[0].init.body).seed });
+  assert.equal(document.querySelector('#status').textContent, '正在生成基准立绘（2/4）');
+  control(document, 'baseAspect', '9:16').click();
+  assert.equal(document.querySelector('#status').textContent, '正在生成基准立绘（2/4）');
+  assert.equal(generateButtons(document).every((button) => button.disabled), true);
+
+  while (queue.length < 4 || queue.some((job) => !job.done)) {
+    const job = queue.find((item) => !item.done);
+    await respondNext(queue, { dataUrl: PNG, seed: JSON.parse(job.init.body).seed });
+  }
+  assert.equal(document.querySelector('#status').textContent, '');
+  assert.equal(document.querySelectorAll('#gallery img').length, 4);
+  assert.equal(document.querySelectorAll('#preview img').length >= 1, true);
+  assert.equal(document.querySelector('#gallery').textContent.includes('图库是空的'), false);
+  assert.equal(generateButtons(document).every((button) => button.disabled), false);
+  assert.equal(JSON.stringify(window.localStorage).includes('data:image/'), false);
+  assert.equal(gallery.batches().length, 1);
+  assert.equal(gallery.batches()[0].items.length, 4);
+
+  const first = gallery.batches()[0].items[0];
+  document.querySelector(`[data-select="${first.id}"]`).click();
+  assert.equal(document.querySelector(`[data-select="${first.id}"]`).getAttribute('aria-pressed'), 'true');
+  buttonByText(document, '设为当前角色基准').click();
+  assert.equal(gallery.base().seed, first.seed);
+  assert.equal(gallery.base().dataUrl, first.dataUrl);
+});
+
+test('a failed generation shows the error and stores nothing', async (t) => {
+  const gallery = createGallery();
+  const { queue, fetcher } = scriptedFetcher();
+  const { document } = setup(t, { gallery, fetcher });
+  buttonByText(document, '生成基准立绘').click();
+  queue[0].done = true;
+  queue[0].reject(new Error('上游失败'));
+  await tick();
+  assert.equal(document.querySelector('#status').textContent, '上游失败');
+  assert.equal(gallery.batches().length, 0);
+  assert.equal(document.querySelector('#preview').textContent.trim(), '还没有图片');
+  assert.equal(document.querySelector('#gallery').textContent.trim(), '图库是空的');
+  assert.equal(generateButtons(document).every((button) => button.disabled), false);
+});
+
+test('turnaround without a base warns that the face will not be locked', async (t) => {
+  const gallery = createGallery();
+  const { queue, fetcher } = scriptedFetcher();
+  const { document } = setup(t, { gallery, fetcher });
+  buttonByText(document, '生成三视图').click();
+  await respondNext(queue, { dataUrl: PNG, seed: 1 });
+  assert.equal(document.querySelector('#status').textContent, '尚未设定角色基准，本次不会锁定脸。');
+  assert.equal(document.querySelectorAll('#gallery img').length, 1);
+  assert.equal(gallery.base(), null);
+});
+
+test('a later batch replaces the preview even when an older image was selected', async (t) => {
+  const gallery = createGallery();
+  const { queue, fetcher } = scriptedFetcher();
+  const { document } = setup(t, { gallery, fetcher });
+  const second = 'data:image/png;base64,BB==';
+  buttonByText(document, '生成三视图').click();
+  await respondNext(queue, { dataUrl: PNG, seed: 1 });
+  document.querySelector('[data-select]').click();
+  assert.equal(document.querySelector('#preview img').getAttribute('src'), PNG);
+  buttonByText(document, '生成三视图').click();
+  await respondNext(queue, { dataUrl: second, seed: 2 });
+  assert.equal(document.querySelector('#preview img').getAttribute('src'), second);
+  assert.equal(document.querySelectorAll('#gallery img').length, 2);
+  assert.equal(document.querySelector('#status').textContent, '尚未设定角色基准，本次不会锁定脸。');
+});
+
+test('the full suite without a base asks for a locked base portrait', async (t) => {
+  const gallery = createGallery();
+  const { queue, fetcher } = scriptedFetcher();
+  const { document } = setup(t, { gallery, fetcher });
+  buttonByText(document, '生成完整图片（一键全套）').click();
+  while (gallery.batches().length === 0) {
+    const job = queue.find((item) => !item.done);
+    await respondNext(queue, { dataUrl: PNG, seed: JSON.parse(job.init.body).seed });
+  }
+  assert.equal(document.querySelector('#status').textContent, '请选择一张基准立绘，并设为当前角色基准。');
+  assert.equal(document.querySelectorAll('#gallery img').length, 4);
+  assert.equal(gallery.batches()[0].items.every((entry) => entry.kind === '基准立绘'), true);
 });

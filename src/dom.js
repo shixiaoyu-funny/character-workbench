@@ -1,8 +1,9 @@
-// 渲染工作台并把点击写回 store。本任务不请求生图。
+// 渲染工作台并把点击写回 store。生图进度写在 mount 记录上，重绘后再放回 #status。
 
 import { PRESETS } from './catalog.js';
 import { CONFIG_KEY } from './state.js';
 import { FACE_BACKUP_KEY, lockReference, unlockReference } from './face.js';
+import { browserFetcher, generateKind, generateSuite } from './generate.js';
 import { nextTheme, resolveTheme } from './theme.js';
 import { viewModel } from './view.js';
 
@@ -88,24 +89,117 @@ function renderReference(reference) {
   return `<label id="reference-upload">${esc(reference.label)}<input type="file" id="reference-file" accept="image/*"></label><button type="button" id="remove-reference"${removeHidden}>${esc(reference.removeLabel)}</button>${note}`;
 }
 
-function renderRight(right, warningList) {
+function renderRight(right, warningList, extras) {
   const warningHtml = warningList.map((text) => `<p>${esc(text)}</p>`).join('');
+  const disabled = extras.generating ? ' disabled' : '';
   const buttons = right.buttons.map((button) => {
     const aspects = button.aspect
       ? `<div class="aspects">${button.aspect.options.map(renderButton).join('')}</div>`
       : '';
-    return `<div class="gen"><button type="button" data-generate="${esc(button.label)}">${esc(button.label)}</button>${aspects}</div>`;
+    return `<div class="gen"><button type="button" data-generate="${esc(button.label)}"${disabled}>${esc(button.label)}</button>${aspects}</div>`;
   }).join('');
-  return `<div id="warnings">${warningHtml}</div>${buttons}<div id="status"></div><div id="reference">${renderReference(right.reference)}</div><div id="preview">${esc(right.preview)}</div><div id="gallery">${esc(right.gallery)}</div><button type="button" id="open-download">${esc(right.download)}</button>`;
+  return `<div id="warnings">${warningHtml}</div>${buttons}<div id="status"></div><div id="reference">${renderReference(right.reference)}</div><div id="preview">${extras.preview}</div><div id="gallery">${extras.gallery}</div><button type="button" id="lock-base">设为当前角色基准</button><button type="button" id="open-download">${esc(right.download)}</button>`;
+}
+
+function galleryItems(gallery) {
+  if (!gallery || typeof gallery.batches !== 'function') return [];
+  return gallery.batches().flatMap((batch) => batch.items || []);
+}
+
+function renderShot(item, selected) {
+  const pressed = selected ? 'true' : 'false';
+  return `<button type="button" data-select="${esc(item.id)}" aria-pressed="${pressed}"><img src="${esc(item.dataUrl)}" alt="${esc(item.kind)}"></button>`;
+}
+
+function previewHtml(gallery) {
+  const items = galleryItems(gallery);
+  if (!items.length) return '还没有图片';
+  const selected = typeof gallery.selected === 'function' ? gallery.selected() : null;
+  const shown = selected ? [selected] : gallery.batches().at(-1).items;
+  return shown.map((item) => renderShot(item, Boolean(selected && item.id === selected.id))).join('');
+}
+
+function galleryHtml(gallery) {
+  const items = galleryItems(gallery);
+  if (!items.length) return '图库是空的';
+  const selected = typeof gallery.selected === 'function' ? gallery.selected() : null;
+  return items.map((item) => renderShot(item, Boolean(selected && item.id === selected.id))).join('');
 }
 
 function render(doc, model) {
+  const mounted = mounts.get(doc) || {};
   const left = doc.getElementById('col-left');
   const center = doc.getElementById('col-center');
   const right = doc.getElementById('col-right');
   if (left) left.innerHTML = renderLeft(model.left);
   if (center) center.innerHTML = renderCenter(model.center);
-  if (right) right.innerHTML = renderRight(model.right, model.warnings);
+  if (right) {
+    right.innerHTML = renderRight(model.right, model.warnings, {
+      generating: Boolean(mounted.generating),
+      preview: previewHtml(mounted.gallery),
+      gallery: galleryHtml(mounted.gallery),
+    });
+  }
+  const status = doc.getElementById('status');
+  if (status) status.textContent = mounted.statusText || '';
+}
+
+function setStatus(doc, text) {
+  const mounted = mounts.get(doc);
+  if (mounted) mounted.statusText = text;
+  const status = doc.getElementById('status');
+  if (status) status.textContent = text;
+}
+
+const GENERATE_LABELS = {
+  '生成基准立绘': '基准立绘',
+  '生成三视图': '三视图',
+  '生成表情差分图': '表情差分图',
+  '生成服饰拆解图': '服饰拆解图',
+  '生成Q版形象': 'Q版形象',
+};
+
+async function startGenerate(doc, label) {
+  const mounted = mounts.get(doc);
+  if (!mounted || mounted.generating) return;
+  if (!mounted.gallery || typeof mounted.gallery.addBatch !== 'function') return;
+  mounted.generating = true;
+  setStatus(doc, '');
+  mounted.paint();
+  const counting = label === '生成基准立绘'
+    || (label === '生成完整图片（一键全套）' && !mounted.gallery.base());
+  let step = 0;
+  const fetcher = async (url, init) => {
+    if (counting && url === '/api/generate') {
+      step += 1;
+      setStatus(doc, `正在生成基准立绘（${step}/4）`);
+    }
+    return (mounted.fetcher || browserFetcher)(url, init);
+  };
+  try {
+    const common = {
+      state: mounted.store.getState(),
+      gallery: mounted.gallery,
+      images: mounted.images,
+      fetcher,
+    };
+    if (label === '生成完整图片（一键全套）') {
+      const result = await generateSuite(common);
+      mounted.gallery.select(null);
+      setStatus(doc, result.stopped ? '请选择一张基准立绘，并设为当前角色基准。' : '');
+    } else {
+      const kind = GENERATE_LABELS[label];
+      const hadBase = Boolean(mounted.gallery.base());
+      await generateKind({ ...common, kind });
+      mounted.gallery.select(null);
+      setStatus(doc, kind !== '基准立绘' && !hadBase ? '尚未设定角色基准，本次不会锁定脸。' : '');
+    }
+  } catch (error) {
+    setStatus(doc, error && error.message ? error.message : '生成失败');
+  } finally {
+    mounted.generating = false;
+    mounted.paint();
+  }
 }
 
 function toggleMulti(state, field, value) {
@@ -133,10 +227,21 @@ function onClick(doc, event) {
     unlockReference(store, doc.defaultView.localStorage);
     return;
   }
+  const select = event.target.closest('[data-select]');
+  if (select && mounted.gallery && typeof mounted.gallery.select === 'function') {
+    mounted.gallery.select(select.dataset.select);
+    mounted.paint();
+    return;
+  }
+  if (event.target.closest('#lock-base')) {
+    if (mounted.gallery && typeof mounted.gallery.lockSelected === 'function') mounted.gallery.lockSelected();
+    mounted.paint();
+    return;
+  }
   const generate = event.target.closest('[data-generate]');
   if (generate) {
-    const status = doc.getElementById('status');
-    if (status) status.textContent = '生成功能尚未接入';
+    if (generate.disabled || mounted.generating) return;
+    void startGenerate(doc, generate.dataset.generate);
     return;
   }
   const presetButton = event.target.closest('[data-preset]');
@@ -270,9 +375,10 @@ function bindReset(doc) {
   });
 }
 
-export function mount(doc, { store, gallery, images = { reference: null } } = {}) {
-  void gallery;
-  mounts.set(doc, { store, images });
+export function mount(doc, { store, gallery, images = { reference: null }, fetcher } = {}) {
+  const record = { store, images, gallery, fetcher, statusText: '', generating: false, paint: () => {} };
+  mounts.set(doc, record);
+  record.paint = () => render(doc, viewModel(store.getState(), { faceLocked: Boolean(images.reference) }));
   if (doc.documentElement.dataset.workbenchBound !== '1') {
     doc.documentElement.dataset.workbenchBound = '1';
     doc.addEventListener('click', (event) => onClick(doc, event));
@@ -280,8 +386,7 @@ export function mount(doc, { store, gallery, images = { reference: null } } = {}
     bindTheme(doc);
     bindReset(doc);
   }
-  const paint = () => render(doc, viewModel(store.getState(), { faceLocked: Boolean(images.reference) }));
-  store.subscribe(paint);
+  store.subscribe(record.paint);
   store.hydrate();
   // 只有备份、内存里没有参考图时不保持锁脸：还原面部并立刻落盘。
   const view = doc.defaultView;
