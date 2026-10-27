@@ -72,7 +72,7 @@ test('turnaround: fixed set, character tags only, wide aspect', () => {
   assert.equal(p.aspect, '16:9');
 });
 
-test('expression chart: emotion tags, 1:1, no gaze or body words', () => {
+test('expression chart: emotion tags, 1:1, no gaze, body or clothing words', () => {
   const s = { ...defaultState(), eyeEmotions: ['开心(弯眼)'], mouthStates: ['微笑'] };
   const p = buildPrompt(s, '表情差分图', {});
   assert.ok(p.positive.includes('happy'));
@@ -83,6 +83,7 @@ test('expression chart: emotion tags, 1:1, no gaze or body words', () => {
   assert.ok(p.positive.includes('portrait'));
   assert.ok(!p.positive.includes('looking at viewer'));
   assert.ok(!p.positive.includes('full body'));
+  assert.ok(!p.positive.includes('pleated skirt'), 'clothing must stay out of expression charts');
   assert.equal(p.negative, 'full body, single expression');
   assert.equal(p.aspect, '1:1');
 });
@@ -95,13 +96,15 @@ test('expression chart keeps face fields when unlocked and drops them when locke
   assert.ok(!locked.positive.includes('oval face'));
 });
 
-test('expression chart includes clothing and effect symbols', () => {
-  const s = { ...defaultState(), effectSymbols: ['汗滴'] };
+test('expression chart keeps effect symbols but drops clothing, colors and handheld', () => {
+  const s = { ...defaultState(), effectSymbols: ['汗滴'],
+    mainColors: ['黑', '红'], colorPreset: 'classic-black-red' };
   const p = buildPrompt(s, '表情差分图', {});
-  assert.ok(p.positive.includes('pleated skirt'));
   assert.ok(p.positive.includes('sweatdrop'));
-  assert.ok(!p.positive.includes('holding book'));
-  assert.ok(!p.positive.includes('soft lighting'));
+  for (const gone of ['pleated skirt', 'sailor collar', 'leather shoes',
+    'holding book', 'soft lighting', 'black skirt', 'red ribbon', 'clothes', 'accents']) {
+    assert.ok(!p.positive.includes(gone), `${gone} must not enter expression chart`);
+  }
 });
 
 test('clothing breakdown: item tags only, spec prefix and negative verbatim', () => {

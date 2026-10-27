@@ -154,9 +154,10 @@ function tagSequence(kind, state) {
     return [...IDENTITY_FIELDS, ...FACE_FIELDS, ...HAIR_FIELDS, ...clothingFields(state),
       ...ACCESSORY_FIELDS, 'handheld', 'colorScheme'];
   }
-  // 表情差分图：身份、五官妆容、发型、头饰、服饰、配色、表情段。
-  return [...IDENTITY_FIELDS, ...FACE_FIELDS, ...HAIR_FIELDS, ...clothingFields(state),
-    ...HEADWEAR_FIELDS, 'colorScheme', ...EXPRESSION_FIELDS];
+  // 表情差分图：身份、五官妆容、发型、头饰（帽子与三类头饰）、表情段。
+  // 不含服装、配色、手持、面颈/手背配饰、体态、视线、镜头与背景。
+  return [...IDENTITY_FIELDS, ...FACE_FIELDS, ...HAIR_FIELDS,
+    ...HEADWEAR_FIELDS, ...EXPRESSION_FIELDS];
 }
 
 export function buildPrompt(state, kind, { hasReference = false, styleReference = false } = {}) {
