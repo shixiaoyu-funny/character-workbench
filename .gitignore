@@ -1,0 +1,7 @@
+node_modules/
+.superpowers/
+.obsidian/
+__pycache__/
+*.pyc
+.env
+output/
