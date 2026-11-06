@@ -273,6 +273,10 @@ function customColorTerms(field, value, state) {
     const color = hex(state.hairColorCustom);
     return color ? [`${color} hair`] : [];
   }
+  if (field === 'eyeColor' && value === '自定义') {
+    const color = hex(state.eyeColorCustom);
+    return color ? [`${color} eyes`] : [];
+  }
   if (field === 'pupil' && value === '异色瞳（左红右蓝等可配）') {
     return [hex(state.heterochromiaLeft), hex(state.heterochromiaRight)]
       .filter(Boolean).map((color) => `${color} eye`);
@@ -398,20 +402,85 @@ export function poseClause(state) {
   return tag ? [tag] : [];
 }
 
+// 瞳色：唯一由表单直接钉死的五官属性 —— 颜色用文字说清，虹膜画法交给参考图。
+// 它**不能**放进 FACE_FIELDS：锁脸时 skipFace 会把整个 FACE_FIELDS 剔掉，
+// 这条约束会跟着一起消失，而「眼睛抄了风格参考图」正是这么发生的。
+const EYE_FIELDS = ['eyeColor'];
+const EYE_COLOR_FALLBACK = '跟随参考图';
+
+function chosenEyeColor(state) {
+  const value = state.eyeColor;
+  if (!value || value === EYE_COLOR_FALLBACK) return '';
+  if (value === '自定义') {
+    return isHexColor(state.eyeColorCustom) ? colorNameOf(state, state.eyeColorCustom) : '';
+  }
+  return value;
+}
+
+// 正向：一句中文把颜色钉死，并明确「画法可以跟参考图，颜色不行」。
+function eyeColorClause(state) {
+  const label = chosenEyeColor(state);
+  if (!label) return '';
+  return `瞳色固定为「${label}」：虹膜与瞳孔的颜色全程只按这一个颜色绘制，`
+    + '虹膜的形状、高光形状与渐变方式跟随参考图的画法，颜色以这句话为准。';
+}
+
+// 负向：把其它预设瞳色显式排掉。带上 eyes 限定，不会误伤同色的头发与衣服。
+// 另外单独排青绿：预设里没有绿色，而「瞳色抄了风格参考图」实测抄的就是青绿渐变，
+// 只按「其它预设色」生成负向会正好漏掉这个真正的翻车颜色。
+const TEAL_EYE_NEGATIVE = ['(teal eyes:1.3)', '(green eyes:1.3)'];
+
+function isGreenish(hex) {
+  if (!isHexColor(hex)) return false;
+  const value = hex.replace('#', '');
+  const full = value.length === 3 ? value.split('').map((c) => c + c).join('') : value;
+  const r = parseInt(full.slice(0, 2), 16) / 255;
+  const g = parseInt(full.slice(2, 4), 16) / 255;
+  const b = parseInt(full.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max === min) return false;
+  let h;
+  if (max === g) h = 60 * (2 + (b - r) / (max - min));
+  else if (max === r) h = 60 * (((g - b) / (max - min)) % 6);
+  else h = 60 * (4 + (r - g) / (max - min));
+  if (h < 0) h += 360;
+  return h >= 60 && h <= 180;
+}
+
+function eyeColorNegative(state) {
+  const label = chosenEyeColor(state);
+  if (!label) return [];
+  // 自定义色不给「其它预设色」负向：取色器给的颜色可能正好接近某个预设（#8B4513 就是棕），
+  // 那样会把用户自己选的颜色排掉。
+  const isCustom = state.eyeColor === '自定义';
+  const others = isCustom ? [] : (OPTIONS.eyeColor || [])
+    .map((opt) => opt.value)
+    .filter((value) => value && value !== '自定义' && value !== EYE_COLOR_FALLBACK && value !== state.eyeColor)
+    .map((value) => tagOf('eyeColor', value))
+    .filter(Boolean)
+    .slice(0, 6)
+    .map((tag) => `(${tag}:1.3)`);
+  // 用户自己选了绿色系（自定义色相落在绿区）时，不要再排绿。
+  const keepGreen = state.eyeColor === '自定义' && isGreenish(state.eyeColorCustom);
+  return ['(wrong eye color:1.4)', '(different iris color:1.4)',
+    ...(keepGreen ? [] : TEAL_EYE_NEGATIVE), ...others];
+}
+
 // 每种图的字段白名单，顺序即状态字段顺序（配色位于手持之后、体态之前）。
 function tagSequence(kind, state) {
   if (kind === '基准立绘' || kind === 'Q版形象') {
-    return [...IDENTITY_FIELDS, ...FACE_FIELDS, ...HAIR_FIELDS, ...clothingFields(state),
+    return [...IDENTITY_FIELDS, ...FACE_FIELDS, ...EYE_FIELDS, ...HAIR_FIELDS, ...clothingFields(state),
       ...ACCESSORY_FIELDS, 'colorScheme'];
   }
   if (kind === '三视图') {
-    return [...IDENTITY_FIELDS, ...FACE_FIELDS, ...HAIR_FIELDS, ...clothingFields(state),
+    return [...IDENTITY_FIELDS, ...FACE_FIELDS, ...EYE_FIELDS, ...HAIR_FIELDS, ...clothingFields(state),
       ...ACCESSORY_FIELDS, 'colorScheme'];
   }
   // 表情差分图：身份、五官妆容、发型、头饰（帽子与三类头饰）、面颈配饰（眼镜/Choker/领带等）。
   // 表情由 EXPRESSION_PRESET 预设的 9 宫格统一指定，不依赖用户勾选的 eyeEmotions/mouthStates/effectSymbols。
   // 保留发型发色面部特征与头部/颈部配饰，防止被画成光头/裸体；不含服装、配色、手持、手背配饰、体态、视线、镜头与背景。
-  return [...IDENTITY_FIELDS, ...FACE_FIELDS, ...HAIR_FIELDS,
+  return [...IDENTITY_FIELDS, ...FACE_FIELDS, ...EYE_FIELDS, ...HAIR_FIELDS,
     ...HEADWEAR_FIELDS, 'faceNeck'];
 }
 
@@ -443,6 +512,8 @@ export function buildPrompt(state, kind, { hasReference = false, styleCount = 0 
     const positiveParts = [BASE_COMPOSITION];
     for (const tag of FIXED[kind] || []) positiveParts.push(tag);
     if (hasReference) positiveParts.push(LOCK_SENTENCE);
+    // 瞳色紧随锁脸句：锁脸时五官文字全被剔掉，这里是唯一还在的五官约束。
+    positiveParts.push(eyeColorClause(state));
     for (const tag of collected) positiveParts.push(tag);
     // 轮廓排除只算一次，正向与负向共用。
     const shape = clothingExclusions(state);
@@ -455,6 +526,7 @@ export function buildPrompt(state, kind, { hasReference = false, styleCount = 0 
       negative: [...new Set([
         ...style.negative,
         ...(NEGATIVE[kind] || []),
+        ...eyeColorNegative(state),
         ...shape.negative,
       ])].join(', '),
       aspect: state.baseAspect,
@@ -479,6 +551,8 @@ export function buildPrompt(state, kind, { hasReference = false, styleCount = 0 
     // 身份词要排在风格锚点之前：风格锚点里的 big/detailed/glossy eyes 会盖过身份锁，
     // 让模型觉得「眼睛画得漂亮就行」，于是顺手抄了风格图的瞳色。
     if (hasReference) pushChibi(CHIBI_LOCK_SENTENCE);
+    // 瞳色：表单给定就写死颜色，风格图只许贡献画法。这一句必须排在风格锚点之前。
+    pushChibi(eyeColorClause(state));
     // 五官归属锁只用来挡「风格图抢走瞳色/发型/服饰」，没有风格图时不需要。
     if (hasReference && styleCount > 0) {
       for (const tag of CHIBI_IDENTITY_LOCKS) pushChibi(tag);
@@ -497,6 +571,7 @@ export function buildPrompt(state, kind, { hasReference = false, styleCount = 0 
         ...(NEGATIVE[kind] || []),
         // 有角色参考图时，把「抄了风格图的五官/衣服」这类错误显式排掉。
         ...(hasReference && styleCount > 0 ? CHIBI_IDENTITY_NEGATIVE : []),
+        ...eyeColorNegative(state),
         ...chibiShape.negative,
       ])].join(', '),
       aspect: '1:1',
@@ -515,6 +590,8 @@ export function buildPrompt(state, kind, { hasReference = false, styleCount = 0 
       positiveParts.push(value);
     }
   };
+  // 瞳色紧随锁脸句：锁脸时五官文字全被剔掉，这里是唯一还在的五官约束。
+  push(eyeColorClause(state));
   for (const tag of FIXED[kind] || []) push(tag);
   for (const tag of collected) push(tag);
   // 连体装轮廓排除：只写 leotard 时模型爱补半透明袖套与身后半片裙摆，这里正负向两头钉住。
@@ -526,6 +603,7 @@ export function buildPrompt(state, kind, { hasReference = false, styleCount = 0 
     negative: [...new Set([
       ...style.negative,
       ...(NEGATIVE[kind] || []),
+      ...eyeColorNegative(state),
       ...shape.negative,
     ])].join(', '),
     aspect: kind === '三视图' ? state.turnaroundAspect : '1:1',

@@ -44,6 +44,14 @@ export const OPTIONS = {
     o('圆形瞳', 'round pupils'), o('猫瞳·竖瞳（兽人/恶魔）', 'slit pupils'),
     o('无高光（病娇/三无）', 'empty eyes'), o('异色瞳（左红右蓝等可配）', 'heterochromia'),
   ],
+  // 瞳色：只定「颜色」这一个属性，虹膜的形状/高光/渐变仍交给参考图。
+  // 「跟随参考图」不写进提示词，是锁脸场景的默认值；异色瞳走左右两个取色器，此项隐藏。
+  eyeColor: [
+    o('跟随参考图', ''),
+    o('黑', 'black eyes'), o('棕', 'brown eyes'), o('天蓝', 'sky blue eyes'),
+    o('深蓝', 'dark blue eyes'), o('黑红', 'dark red eyes'),
+    o('紫', 'purple eyes'), o('粉', 'pink eyes'), o('自定义', ''),
+  ],
   eyebrow: [
     o('细平眉', 'thin eyebrows'), o('粗平眉', 'thick eyebrows'), o('柳叶眉', 'arched eyebrows'),
     o('剑眉（英气）', 'sharp eyebrows'), o('八字眉（委屈）', 'sad eyebrows'), o('挑眉（傲娇）', 'raised eyebrow'),
@@ -533,6 +541,7 @@ export const COLOR_HEX = {
   '深灰': '#4a4a4a', '浅灰': '#cccccc', '银': '#c0c0c0', '米色': '#e8dfc8', '卡其': '#c3b091',
   '浅棕': '#c89b7b', '棕': '#8a5a2b', '深棕': '#3e2612', '沙色': '#d9c49a',
   '藏青': '#1f2f4e', '墨蓝': '#1b2a5e', '深蓝': '#1b2a5e', '亮蓝': '#1e90ff', '浅蓝': '#a8c8e8',
+  '天蓝': '#7ec8f0', '黑红': '#8b1a1a',
   '青': '#3b82c4', '青色': '#39c5d7', '墨黑': '#111111', '蕾丝': '#e6d6c0',
   '红': '#d94f4f', '暗红': '#8b0000', '朱红': '#c3272b', '血红': '#a01020', '生锈红': '#9a463d',
   '粉': '#f4a7c0', '浅粉': '#ffb7d5', '荧光粉': '#ff4fa3', '紫': '#8b5cf6', '浅紫': '#d5c7f0',

@@ -929,3 +929,28 @@ test('a request stopped before it starts never opens the stream', async () => {
   assert.equal(gallery.batches().length, 0);
 });
 
+
+// 瞳色永远取当前表单，而不是基准图当年保存的那份 state：
+// 老基准里没有这个字段，若不覆盖，用户改了瞳色后续图也吃不到。
+test('the current eye colour wins over the locked base snapshot', async () => {
+  const gallery = createGallery();
+  const { streamCalls, fetcher, streamFetcher } = recording();
+  const BASE = 'data:image/png;base64,BASEIMG';
+  // 锁定一张「旧」基准：它的 state 里没有 eyeColor。
+  const oldState = { ...defaultState() };
+  delete oldState.eyeColor;
+  delete oldState.eyeColorCustom;
+  gallery.setBase({ id: 'b1', kind: '基准立绘', dataUrl: BASE, url: null, seed: 7, state: oldState });
+  await generateKind({
+    kind: 'Q版形象',
+    state: { ...defaultState(), eyeColor: '棕' },
+    gallery,
+    images: { reference: null },
+    fetcher,
+    streamFetcher,
+    randomSeed: sequence(3),
+  });
+  const job = jobsOf(streamCalls)[0];
+  assert.ok(job.prompt.includes('brown eyes'), 'current eye colour must reach the prompt');
+  assert.ok(job.prompt.includes('瞳色固定为「棕」'));
+});

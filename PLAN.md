@@ -144,6 +144,8 @@ ai_role_gen/
   faceShape: '鹅蛋脸（标准）', eyeShape: '杏眼（标准）', pupil: '圆形瞳', eyebrow: '细平眉',
   mouth: '嘴角上扬（默认微笑）', nose: '小翘鼻（默认）', facialFeatures: [], skin: '自然肤色',
   heterochromiaLeft: '', heterochromiaRight: '',
+  // 瞳色：表单直接钉死，不让模型从参考图猜；「跟随参考图」= 不写进提示词
+  eyeColor: '跟随参考图', eyeColorCustom: '',
   // 发型
   hairLength: '中长发', hairStyle: '双马尾（高/低）', ahoge: false, bangs: '空气刘海',
   hairColor: '黑', hairColorCustom: '', hairColorExtra: '无',
@@ -211,6 +213,7 @@ ai_role_gen/
 | 脸型 | 单选 | 圆脸/鹅蛋脸/瓜子脸/肉肉脸/方脸 |
 | 眼型 | 单选 | 杏眼/圆眼/上挑眼/下垂眼/半眯眼/死鱼眼/星星眼 |
 | 瞳孔 | 单选 | 圆形瞳/猫瞳竖瞳/无高光/异色瞳（左右各一个取色器） |
+| 瞳色 | 单选 + 取色器 | 跟随参考图/黑/棕/天蓝/深蓝/黑红/紫/粉/自定义；异色瞳时隐藏（改由左右两个取色器定色） |
 | 眉毛 | 单选 | 细平眉/粗平眉/柳叶眉/剑眉/八字眉/挑眉 |
 | 嘴巴 | 单选 | 樱桃小嘴/猫唇/薄唇/厚唇/嘴角上扬 |
 | 鼻子 | 单选 | 小翘鼻/直挺鼻 |
@@ -375,6 +378,13 @@ ai_role_gen/
 - 锁脸句 `LOCK_SENTENCE = '(same face as reference:1.5)'`，有参考图时加入正向。
 - 通用质量词 `QUALITY_TAGS = ['masterpiece','best quality','highres','highly detailed']`；通用负向 `UNIVERSAL_NEGATIVE`（worst/low quality、bad anatomy、missing/extra limbs、bad hands、text、watermark）。
 - `collect` 按字段顺序收集英文标签并去重；`tagSequence` 定义每种图的字段白名单。
+- **瞳色是唯一由表单钉死的五官属性**（`state.eyeColor`，2026-11-06 加）：颜色写死在文字里，虹膜的**画法**（形状/高光/渐变）交给参考图。
+  - `eyeColor` **故意不放进 `FACE_FIELDS`**：锁脸时 `skipFace` 会把整个 `FACE_FIELDS` 剔掉，塞进去这条约束就跟着消失了 —— 这正是「Q 版抄了风格参考图青绿瞳」的成因。
+  - 正向句 `瞳色固定为「棕」：…虹膜的形状、高光形状与渐变方式跟随参考图的画法，颜色以这句话为准。` 排在锁脸句之后、风格锚点之前。
+  - 负向由 `eyeColorNegative` 动态生成：通用 `(wrong eye color:1.4)` + **固定排青绿** `(teal eyes:1.3), (green eyes:1.3)`（预设里没有绿色，只按「其它预设色」排会正好漏掉实测翻车的那个颜色）+ 其它预设色 `(xxx eyes:1.3)` 最多 4 个。
+  - 「跟随参考图」（默认）不写正向也不写负向，保持旧行为；「自定义」用取色器色值、且不生成预设色负向（否则 `#8B4513` 会被自己的 `(brown eyes)` 排掉）；自定义色相落在绿区时不排绿。
+  - 瞳色**永远取当前表单**，不吃基准图存的 `state` 快照（老基准里没有这个字段，否则改了瞳色后续图也吃不到）。
+  - 异色瞳时不显示该控件（由 `heterochromiaLeft/Right` 两个取色器定色），`fieldVisible('eyeColor')` 返回 false。
 - 表情差分图用预设 9 宫格 `EXPRESSION_PRESET`（微笑/生气/哭/惊讶/脸红/得意/悲伤/眨眼/无表情），不依赖用户勾选的 `eyeEmotions/mouthStates/effectSymbols`。
 - 鞋子长度锚点：`clothingTerms` 里「过膝靴」骨架除款式 tag（`thigh-high boots` / `mecha boots`）外，追加 `(thigh-high boots:1.3), (over-knee boots:1.2)` 两个加权锚点，钉死靴筒长度，防止模型把过膝靴画成中筒靴。
 - 赤脚正向词：`clothingTerms` 对鞋子骨架「赤脚」固定先推 `barefoot`，再按款式追加 `bare feet / natural toes / visible toenails`（纯赤脚）、`delicate anklet / gold chain / small bells`（脚链）、`red toenails / glossy nail polish`（趾甲油）、`tabi socks / split toe`（足袋）、`ribbon wrapped around ankle / laces`（绑带缠绕）；细配可补 `metallic` / `lace-up`。
@@ -693,7 +703,7 @@ def stream_workers(remaining):
 
 ## 14. 测试
 
-**JS**（`npm test`，`node --test`，当前 **308 通过 / 0 失败**）：
+**JS**（`npm test`，`node --test`，当前 **316 通过 / 0 失败**）：
 
 | 文件 | 覆盖 |
 | --- | --- |

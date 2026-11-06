@@ -313,7 +313,7 @@ test('after linkage every single-select default value is wu or visible', () => {
     'pose', 'handPose', 'headDirection']);
   const skipped = new Set(['crossdressing', 'ahoge', 'backgroundColor', 'colorNames', 'style',
     'hairColorCustom', 'streakColor', 'gradientRootColor', 'gradientTipColor',
-    'eyeShadowColor', 'lipColor', 'heterochromiaLeft', 'heterochromiaRight',
+    'eyeShadowColor', 'lipColor', 'eyeColorCustom', 'heterochromiaLeft', 'heterochromiaRight',
     'tuneGender', 'tuneShoes', 'tuneSocks', 'top', 'bottom', 'outerwear', 'onePiece', 'shoes', 'socks']);
   for (const [field, value] of Object.entries(linked)) {
     if (multi.has(field) || skipped.has(field) || field.endsWith('Aspect')) continue;
@@ -479,4 +479,10 @@ test('every recommended clothing value exists in its node', () => {
       }
     }
   }
+});
+
+test('eye colour hides for heterochromia, which carries its own two pickers', () => {
+  assert.equal(fieldVisible('eyeColor', applyLinkage(defaultState())), true);
+  const hetero = applyLinkage({ ...defaultState(), pupil: '异色瞳（左红右蓝等可配）' });
+  assert.equal(fieldVisible('eyeColor', hetero), false);
 });

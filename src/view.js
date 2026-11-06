@@ -11,7 +11,7 @@ import { CLOTHING_SLOTS, clothingView } from './clothing.js';
 
 const FIELD_LABELS = {
   gender: '性别', age: '年龄', race: '种族', role: '角色定位', crossdressing: '特殊/伪娘',
-  faceShape: '脸型', eyeShape: '眼型', pupil: '瞳孔', eyebrow: '眉毛', mouth: '嘴巴', nose: '鼻子',
+  faceShape: '脸型', eyeShape: '眼型', pupil: '瞳孔', eyeColor: '瞳色', eyebrow: '眉毛', mouth: '嘴巴', nose: '鼻子',
   facialFeatures: '面部特征', skin: '肤色',
   hairLength: '长度', hairStyle: '基础造型', ahoge: '呆毛', bangs: '刘海', hairColor: '发色',
   hairColorExtra: '挑染与渐变',
@@ -29,7 +29,7 @@ const FIELD_LABELS = {
 };
 
 const CENTER_GROUPS = [
-  { title: '面部', fields: ['faceShape', 'eyeShape', 'pupil', 'eyebrow', 'mouth', 'nose', 'facialFeatures', 'skin'] },
+  { title: '面部', fields: ['faceShape', 'eyeShape', 'pupil', 'eyeColor', 'eyebrow', 'mouth', 'nose', 'facialFeatures', 'skin'] },
   { title: '发型', fields: ['hairLength', 'hairStyle', 'ahoge', 'bangs', 'hairColor', 'hairColorExtra'] },
   { title: '妆容', fields: ['blush', 'eyeMakeup', 'lipstick', 'specialMakeup'] },
   { title: '服饰', fields: ['top', 'bottom', 'outerwear', 'onePiece', 'shoes', 'socks', 'outfitEffects', 'mainColors', 'accentColors'] },
@@ -136,11 +136,12 @@ function listedOptions(field, state) {
 }
 
 // 这些字段的选项要带色块预览（命名色走 COLOR_HEX，自由色直接用十六进制值）。
-const SWATCH_FIELDS = new Set(['hairColor', 'mainColors', 'accentColors']);
+const SWATCH_FIELDS = new Set(['hairColor', 'eyeColor', 'mainColors', 'accentColors']);
 
 // 「可选颜色」条件取色器：选中 when 时显示一个 <input type="color">，写入 stateField。
 const CONDITIONAL_COLOR_INPUTS = {
   hairColor: [{ stateField: 'hairColorCustom', when: '自定义', label: '自定义发色' }],
+  eyeColor: [{ stateField: 'eyeColorCustom', when: '自定义', label: '自定义瞳色' }],
   pupil: [
     { stateField: 'heterochromiaLeft', when: '异色瞳（左红右蓝等可配）', label: '左眼颜色' },
     { stateField: 'heterochromiaRight', when: '异色瞳（左红右蓝等可配）', label: '右眼颜色' },

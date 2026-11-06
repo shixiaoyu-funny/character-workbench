@@ -273,7 +273,12 @@ async function buildStep({
   }
   // 基准立绘本身用当前表单生成（它才是新角色的来源）；其余后续图优先用锁定基准保存的配置。
   const isBase = kind === '基准立绘';
-  const effectiveState = isBase ? state : (lockedCharacterState(snapshot, kind) || state);
+  const locked = isBase ? null : lockedCharacterState(snapshot, kind);
+  // 瞳色是「我现在要的颜色」，不是「基准图当年配的色」：永远取当前表单，
+  // 否则老基准的 state 里没有这个字段，用户改了瞳色后续图也吃不到。
+  const effectiveState = locked
+    ? { ...locked, eyeColor: state.eyeColor, eyeColorCustom: state.eyeColorCustom }
+    : state;
   const built = buildPrompt(effectiveState, kind, { hasReference: plan.hasReference, styleCount });
   return {
     kind,

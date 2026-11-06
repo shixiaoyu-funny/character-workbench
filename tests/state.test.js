@@ -55,7 +55,7 @@ test('sanitizeState rejects non-objects', () => {
 });
 
 test('sanitizeState rejects a missing default key', () => {
-  const keys = Object.keys(defaultState()).filter((key) => key !== 'style' && key !== 'tuneAspect' && key !== 'tuneGender' && key !== 'tuneShoes' && key !== 'tuneSocks');
+  const keys = Object.keys(defaultState()).filter((key) => key !== 'style' && key !== 'tuneAspect' && key !== 'tuneGender' && key !== 'tuneShoes' && key !== 'tuneSocks' && key !== 'eyeColor' && key !== 'eyeColorCustom');
   assert.ok(keys.length > 0);
   for (const key of keys) {
     const broken = { ...defaultState() };
@@ -311,4 +311,14 @@ test('flush writes pending state immediately and cancels the timer', () => {
   // flush with nothing pending must not double-write or toast again
   store.flush();
   assert.equal(toasts.length, 1);
+});
+
+test('eye colour backfills from an old save instead of voiding the whole config', () => {
+  const old = { ...defaultState() };
+  delete old.eyeColor;
+  delete old.eyeColorCustom;
+  const out = sanitizeState(old);
+  assert.ok(out);
+  assert.equal(out.eyeColor, '跟随参考图');
+  assert.equal(out.eyeColorCustom, '');
 });

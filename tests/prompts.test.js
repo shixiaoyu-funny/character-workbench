@@ -919,3 +919,49 @@ test('tuneShoes and tuneSocks both off produce a fully barefoot tune', () => {
   assert.ok(!off.positive.includes('same socks as the first reference'));
   assert.ok(off.negative.includes('(socks:1.4)'));
 });
+
+// 瞳色：表单给定就把颜色钉死在文字里，参考图只负责「虹膜怎么画」。
+// 这条链路的翻车现场是「Q 版抄了风格参考图的青绿瞳」，所以断言要盯着正负两向。
+test('eye colour is pinned in text while the reference only supplies the rendering', () => {
+  const state = { ...defaultState(), eyeColor: '棕' };
+  const p = buildPrompt(state, 'Q版形象', { hasReference: true, styleCount: 2 });
+  assert.ok(p.positive.includes('brown eyes'));
+  assert.ok(p.positive.includes('瞳色固定为「棕」'));
+  // 锁脸时五官字段整体被剔掉，瞳色句必须仍然在，否则又回到「完全没有瞳色信息」。
+  assert.equal(p.positive.includes('oval face'), false);
+  // 青绿是实测抄错的那个颜色，必须进负向。
+  assert.ok(p.negative.includes('(teal eyes:1.3)'));
+  assert.ok(p.negative.includes('(green eyes:1.3)'));
+  // 用户自己选的棕色不能被自己排掉。
+  assert.equal(p.negative.includes('(brown eyes:1.3)'), false);
+});
+
+test('following the reference adds neither a colour clause nor forced negatives', () => {
+  const p = buildPrompt(defaultState(), 'Q版形象', { hasReference: true, styleCount: 2 });
+  assert.equal(p.positive.includes('瞳色固定为'), false);
+  assert.equal(p.negative.includes('(teal eyes:1.3)'), false);
+});
+
+test('a custom eye colour is written as its own value and is never negated', () => {
+  const state = { ...defaultState(), eyeColor: '自定义', eyeColorCustom: '#8B4513' };
+  const p = buildPrompt(state, 'Q版形象', { hasReference: true, styleCount: 2 });
+  assert.ok(p.positive.includes('瞳色固定为「#8B4513」'));
+  assert.ok(p.positive.includes('#8B4513 eyes'));
+  assert.equal(p.negative.includes('(brown eyes:1.3)'), false);
+});
+
+test('a green custom eye colour keeps green out of the negative list', () => {
+  const state = { ...defaultState(), eyeColor: '自定义', eyeColorCustom: '#2E8B57' };
+  const p = buildPrompt(state, 'Q版形象', { hasReference: true, styleCount: 2 });
+  assert.equal(p.negative.includes('(teal eyes:1.3)'), false);
+  assert.equal(p.negative.includes('(green eyes:1.3)'), false);
+});
+
+test('eye colour reaches the turnaround and the expression chart too', () => {
+  const state = { ...defaultState(), eyeColor: '深蓝' };
+  for (const kind of ['基准立绘', '三视图', '表情差分图']) {
+    const p = buildPrompt(state, kind, { hasReference: true });
+    assert.ok(p.positive.includes('dark blue eyes'), kind);
+    assert.ok(p.positive.includes('瞳色固定为「深蓝」'), kind);
+  }
+});

@@ -70,6 +70,8 @@ const MULTI_FIELDS = Object.keys(TEMPLATE).filter(
 export function fieldVisible(field, state) {
   if (field === 'crossdressing') return state.gender === '男';
   if (field === 'feminineAccessories') return !(state.gender === '男' && !state.crossdressing);
+  // 异色瞳已经用左右两个取色器定色，单色瞳再显示一项只会互相打架。
+  if (field === 'eyeColor') return state.pupil !== '异色瞳（左红右蓝等可配）';
   return true;
 }
 
