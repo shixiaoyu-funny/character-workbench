@@ -954,3 +954,46 @@ test('the current eye colour wins over the locked base snapshot', async () => {
   assert.ok(job.prompt.includes('brown eyes'), 'current eye colour must reach the prompt');
   assert.ok(job.prompt.includes('瞳色固定为「棕」'));
 });
+
+// 热门Q版：两张正比图在前，风格图只取 1 张排在最后；张数走 baseCount。
+test('hot chibi feeds two character sheets then exactly one style reference', async () => {
+  const gallery = createGallery();
+  const { streamCalls, fetcher, streamFetcher } = recording({ styleImages: [STYLE, STYLE2] });
+  const A = 'data:image/png;base64,HOTA';
+  const B = 'data:image/png;base64,HOTB';
+  await generateKind({
+    kind: '热门Q版',
+    state: defaultState(),
+    gallery,
+    images: {},
+    fetcher,
+    streamFetcher,
+    randomSeed: sequence(5),
+    snapshot: { upload: null, base: null, clothingPair: null, hots: [A, B] },
+    baseCount: 2,
+  });
+  const jobs = jobsOf(streamCalls);
+  assert.equal(jobs.length, 2, 'baseCount 2 must produce two images');
+  assert.deepEqual(jobs[0].referenceImages, [A, B, STYLE]);
+  assert.equal(jobs[0].model, 'qwen-image-3.0');
+  assert.ok(jobs[0].prompt.includes('图 3 只提供 Q 版画法'));
+});
+
+test('hot chibi works with a single character sheet', async () => {
+  const gallery = createGallery();
+  const { streamCalls, fetcher, streamFetcher } = recording({ styleImages: [STYLE] });
+  const A = 'data:image/png;base64,HOTA';
+  await generateKind({
+    kind: '热门Q版',
+    state: defaultState(),
+    gallery,
+    images: {},
+    fetcher,
+    streamFetcher,
+    randomSeed: sequence(6),
+    snapshot: { upload: null, base: null, clothingPair: null, hots: [A] },
+  });
+  const job = jobsOf(streamCalls)[0];
+  assert.deepEqual(job.referenceImages, [A, STYLE]);
+  assert.ok(job.prompt.includes('图 2 只提供 Q 版画法'));
+});

@@ -7,7 +7,7 @@ import {
 } from './catalog.js';
 import { clothingExclusions, clothingTerms } from './clothing.js';
 
-export const KINDS = ['基准立绘', '三视图', '表情差分图', '服饰拆解图', '手部拆解图', 'Q版形象'];
+export const KINDS = ['基准立绘', '三视图', '表情差分图', '服饰拆解图', '手部拆解图', 'Q版形象', '热门Q版'];
 
 const LOCK_SENTENCE = '(same face as reference:1.5)';
 
@@ -96,6 +96,23 @@ const CHIBI_IDENTITY_NEGATIVE = [
 // Q 版锁脸句要指明「第 1 张」：风格图排在后面，写成 reference 会让模型去抄风格图的脸与瞳色。
 const CHIBI_LOCK_SENTENCE = '(same face as the first reference:1.5)';
 
+// ---------------- 热门Q版：用户上传正比图，直接出 Q 版 ----------------
+// 与「Q版形象」的区别只在输入源：那边是锁定的基准立绘 + 全部风格图，
+// 这边是用户现场传的 1~2 张正比立绘 + 固定 1 张风格图。
+// 身份全部来自正比图，所以提示词里不拼任何角色标签（tagSequence 为空）。
+function hotChibiRoleClause(charCount, styleCount) {
+  const styleIndex = charCount + 1;
+  const identity = charCount >= 2
+    ? '图 1 与图 2 是同一个角色的两张正比立绘，它们共同定义角色的长相、五官、发色、'
+      + '瞳色、服装与配色；这两张图是同一人，不是两个人。'
+    : '图 1 是角色参考图，角色的长相、五官、发色、瞳色、服装与配色全部以它为准。';
+  if (!styleCount) {
+    return `${identity}头身比与画风按下面的 Q 版指令来。`;
+  }
+  return `${identity}图 ${styleIndex} 只提供 Q 版画法：头身比、线条粗细、`
+    + '上色与阴影方式；它不提供角色特征、发型、服装与任何颜色。';
+}
+
 
 const FIXED = {
   基准立绘: [
@@ -116,6 +133,11 @@ const FIXED = {
     'chibi', 'super deformed', 'cute', 'full body', 'standing',
     'white background', ...QUALITY_TAGS,
   ],
+  // 热门Q版：身份全部来自用户上传的正比图，提示词只描述「画成 Q 版」这件事。
+  热门Q版: [
+    'chibi', 'super deformed', 'cute', 'full body', 'standing',
+    'white background', ...QUALITY_TAGS,
+  ],
 };
 
 const NEGATIVE = {
@@ -126,6 +148,11 @@ const NEGATIVE = {
     ...UNIVERSAL_NEGATIVE,
   ],
   Q版形象: [...CHIBI_NEGATIVE, 'tall', 'slim waist', 'adult body'],
+  热门Q版: [...CHIBI_NEGATIVE, 'tall', 'slim waist', 'adult body',
+    // 正比原图多半带背景与特效，Q 版必须是干净白底立绘。
+    '(complex background:1.3)', '(scenery:1.2)', '(text:1.3)', '(watermark:1.4)',
+    // 两张正比图不是同一角色时会画出混合体，这里把「多角色」显式排掉。
+    '(two different characters:1.4)', '(different faces:1.4)', '(group:1.3)'],
 };
 
 // 单一生成风格：二次元风格（赛璐璐平涂，米哈游风）。写实风已删除。
@@ -486,7 +513,7 @@ function tagSequence(kind, state) {
 
 // 单风格下不再需要写实风的 2.5d 放大补丁，直接删除。
 
-export function buildPrompt(state, kind, { hasReference = false, styleCount = 0 } = {}) {
+export function buildPrompt(state, kind, { hasReference = false, styleCount = 0, charCount = 0 } = {}) {
   if (!KINDS.includes(kind)) {
     throw new Error(`未知图种: ${kind}`);
   }
@@ -573,6 +600,35 @@ export function buildPrompt(state, kind, { hasReference = false, styleCount = 0 
         ...(hasReference && styleCount > 0 ? CHIBI_IDENTITY_NEGATIVE : []),
         ...eyeColorNegative(state),
         ...chibiShape.negative,
+      ])].join(', '),
+      aspect: '1:1',
+    };
+  }
+  // 热门Q版：身份 100% 来自上传的正比图，所以只拼「Q 版怎么画」相关的段落，
+  // 一个角色标签都不加（脸、发、衣服、瞳色全交给图 1、图 2）。
+  if (kind === '热门Q版') {
+    const hotStyle = styleOf(state);
+    const hotParts = [];
+    const hotSeen = new Set();
+    const pushHot = (value) => {
+      if (value && !hotSeen.has(value)) {
+        hotSeen.add(value);
+        hotParts.push(value);
+      }
+    };
+    pushHot(CHIBI_COMPOSITION);
+    pushHot(hotChibiRoleClause(charCount, styleCount));
+    if (hasReference) pushHot(CHIBI_LOCK_SENTENCE);
+    pushHot(eyeColorClause(state));
+    for (const tag of hotStyle.positive) pushHot(tag);
+    for (const tag of CHIBI_PROPORTION_LOCKS) pushHot(tag);
+    for (const tag of FIXED[kind] || []) pushHot(tag);
+    return {
+      positive: hotParts.join(', '),
+      negative: [...new Set([
+        ...hotStyle.negative,
+        ...(NEGATIVE[kind] || []),
+        ...eyeColorNegative(state),
       ])].join(', '),
       aspect: '1:1',
     };

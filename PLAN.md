@@ -60,7 +60,7 @@ npm start
 ```
 ai_role_gen/
 ├── run.bat                     # 一键启动（切 UTF-8、开浏览器、跑 app.py）
-├── index.html                  # 单页外壳：侧边栏 8 项 + 8 个 page 容器 + 全屏预览 + toast
+├── index.html                  # 单页外壳：侧边栏 9 项 + 9 个 page 容器 + 全屏预览 + toast
 ├── package.json                # name ai-role-gen, type module, scripts: test/start
 ├── PLAN.md                     # 本文档
 ├── styles/
@@ -113,7 +113,7 @@ ai_role_gen/
 
 ## 4. 界面与导航
 
-界面是**侧边栏 + 主内容区**（不是旧设计稿的三栏）。`index.html` 左侧八个导航项，主区八个 `<section>` 按路由一一对应。整站没有 hash 路由，`showPage` 只由侧边栏点击、任务卡片跳转和重置驱动。顶栏固定「🌙 主题切换」「重置」按钮。
+界面是**侧边栏 + 主内容区**（不是旧设计稿的三栏）。`index.html` 左侧九个导航项，主区九个 `<section>` 按路由一一对应。整站没有 hash 路由，`showPage` 只由侧边栏点击、任务卡片跳转和重置驱动。顶栏固定「🌙 主题切换」「重置」按钮。
 
 | 路由 | 页面 | 内容 |
 | --- | --- | --- |
@@ -121,6 +121,7 @@ ai_role_gen/
 | `detail` | 细节样式 | 面部、发型、妆容、服饰、头部配饰、配饰（手风琴分组） |
 | `tune` | 角色定向微调 | 姿势/表情/场景多选 + 三图上传 + 性别 + 微调生成 |
 | `generate` | 生成与处理（一般） | 模型/风格展示、基准立绘、四类单图、完整设定集、参考图上传、输出条 |
+| `hotchibi` | 热门Q版 | 上传 1~2 张**同一角色**的正比立绘 + 自动配 1 张 Q 版风格图 → 直接出 Q 版全身立绘（1~4 张可调）。身份全部来自上传图，不读工作台表单 |
 | `watermark` | 批量水印 | 上方「批量图片水印」（满屏斜向水印 + 单张下载/打包 ZIP），下方「批量视频水印」（漂移 + 透明度呼吸水印，实时预览、逐个/批量导出） |
 | `wallpaper` | 动态壁纸 | 一条流水线走完：立绘 → 万相 wan3.0 首尾帧待机循环（4/6/8 秒，默认 6 秒）→ 色彩锁定 / 补帧 60FPS / 4K 超分出母版 → 四端裁剪 + 16 参数调色 → 逐端导出并自动下载。原「动态壁纸2」已并入本页，不再有独立路由 |
 | `tasks` | 任务队列 | 两个单线程池（生成 / 壁纸处理）的任务看板：三栏「已完成·部分完成 / 全部失败 / 正在队列中」，每栏各自分页（每页 5 条），可取消、重试、下载产物 |
@@ -431,6 +432,20 @@ ai_role_gen/
 
 ---
 
+### 8.6 热门Q版（`buildPrompt(state, '热门Q版')`）
+
+用户上传 1~2 张**同一角色的正比立绘**，配上 1 张 Q 版风格图，直接出 Q 版。与「Q版形象」的区别只在输入源。
+
+- **参考图分工**（`hotChibiRoleClause`）：两张正比图在前（图 1、图 2，互相印证同一身份），风格图永远排最后（1 张正比 → 图 2；2 张 → 图 3）。风格图只提供「头身比、线条粗细、上色与阴影方式」，**不提供角色特征与任何颜色**。
+- **不拼任何角色标签**：这个图种不读工作台表单，`tagSequence` 走不到它，所以脸、发、衣服、配色 100% 来自上传图。只拼 `CHIBI_COMPOSITION` + 分工句 + 锁脸句 + 瞳色句 + 风格锚点 + `CHIBI_PROPORTION_LOCKS` + `FIXED['热门Q版']`。
+- **风格图固定 1 张**（`buildStep` 里 `limit = Math.min(1, room)`）：用户决策是「自动用第一张」，多给只会抢配色。
+- **多角色负向**：`(two different characters:1.4)`、`(different faces:1.4)`、`(group:1.3)` —— 两张正比图万一不是同一角色，出来的会是混合体，这条是兜底。
+- **背景负向**：正比原图多半带背景与特效，Q 版必须干净白底，所以排 `(complex background:1.3)`、`(scenery:1.2)`、文字与水印。
+- **张数**：走 `baseCount`（1~4），与基准立绘同一条路径；模型固定 `qwen-image-3.0`。
+- **页面状态**：三张图只进内存（`mounted.hot`），绝不进 `localStorage`；张数与瞳色也只是页面内状态。
+
+---
+
 ## 9. 生图流程（`src/generate.js`）
 
 ### 9.1 请求与回传
@@ -703,7 +718,7 @@ def stream_workers(remaining):
 
 ## 14. 测试
 
-**JS**（`npm test`，`node --test`，当前 **316 通过 / 0 失败**）：
+**JS**（`npm test`，`node --test`，当前 **321 通过 / 0 失败**）：
 
 | 文件 | 覆盖 |
 | --- | --- |
@@ -719,7 +734,7 @@ def stream_workers(remaining):
 | `taskview.test.js` | 任务看板三栏分组、状态文案、分页、文件名、重试判定 |
 | `download.test.js` / `face.test.js` / `theme.test.js` / `colorTranslate.test.js` | 打包、锁脸、主题、颜色翻译 |
 
-**Python**（`pytest`，当前 **161 通过**）：`tests/test_server.py` 覆盖 `calc_size`、`build_payload`/`build_gemini_payload`、`handle_generate`（mock）、`generate_stream_events` 并发与停止、图库、翻译、静态解析、OSS 连通性、`handle_upscale` 超分任务（含 mock 脚本）；`tests/test_tasks.py` 覆盖任务队列的两个池、上限 503、取消与删除；`tests/test_rife_parallel.py` 覆盖补帧切段与并行路数估算。
+**Python**（`pytest`，当前 **162 通过**）：`tests/test_server.py` 覆盖 `calc_size`、`build_payload`/`build_gemini_payload`、`handle_generate`（mock）、`generate_stream_events` 并发与停止、图库、翻译、静态解析、OSS 连通性、`handle_upscale` 超分任务（含 mock 脚本）；`tests/test_tasks.py` 覆盖任务队列的两个池、上限 503、取消与删除；`tests/test_rife_parallel.py` 覆盖补帧切段与并行路数估算。
 
 ---
 

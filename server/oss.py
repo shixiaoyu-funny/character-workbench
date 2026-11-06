@@ -17,6 +17,7 @@ _KIND_SLUG = {
     "服饰拆解图": "clothing",
     "手部拆解图": "handsheet",
     "Q版形象": "chibi",
+    "热门Q版": "hotchibi",
     "微调角色": "tune",
 }
 

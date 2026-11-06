@@ -2518,3 +2518,43 @@ option, optgroup { background: var(--panel); color: var(--text); }
 .task-step[data-step-status="running"] .task-step-status { color: var(--grad-b); }
 .task-step-note { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ef4444; }
 .task-step-link { color: var(--grad-b); text-decoration: none; }
+
+/* ============================================================
+   热门Q版
+   ============================================================ */
+.hot-shell { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+
+.hot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+
+.hot-preview { margin-top: 10px; }
+
+.hot-preview img {
+  width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+  border-radius: 10px;
+  border: 1px solid var(--control-border);
+  background: var(--panel-2);
+}
+
+.hot-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--control-border);
+  background: var(--panel);
+}
+
+.hot-controls label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: var(--text); }
+
+.hot-controls select {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--control-border);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 13px;
+}

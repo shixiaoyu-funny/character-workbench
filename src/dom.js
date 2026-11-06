@@ -1,7 +1,7 @@
 // 渲染工作台并把点击写回 store。生图进度写在 mount 记录上，重绘后再放回 #status。
 
-import { PRESETS, WU_VALUES } from './catalog.js';
-import { CONFIG_KEY } from './state.js';
+import { OPTIONS, PRESETS, WU_VALUES } from './catalog.js';
+import { CONFIG_KEY, defaultState } from './state.js';
 import { FACE_BACKUP_KEY, unlockReference } from './face.js';
 import { dataUrlToBytes, imageFileName, makeFileKey, zipBatch, zipFiles } from './download.js';
 import { browserFetcher, browserStreamFetcher, buildKindPlan, buildSuitePlan, buildTunePlan, executePlanLocally, generateKind, generateSuite, generateTune, isPairSheet, isStopped, planToPayload, stepLabel } from './generate.js';
@@ -2866,12 +2866,13 @@ async function downloadZip(doc, batch) {
   saveFile(doc, zipped.filename, bytesToDataUrl(zipped.bytes));
 }
 
-const ROUTES = ['base', 'detail', 'tune', 'generate', 'watermark', 'wallpaper', 'download', 'tasks'];
+const ROUTES = ['base', 'detail', 'tune', 'generate', 'hotchibi', 'watermark', 'wallpaper', 'download', 'tasks'];
 const PAGE_BY_ROUTE = {
   base: '#page-base',
   detail: '#page-detail',
   tune: '#page-tune',
   generate: '#page-generate',
+  hotchibi: '#page-hotchibi',
   watermark: '#page-watermark',
   wallpaper: '#page-wallpaper',
   download: '#download-view',
@@ -3488,11 +3489,13 @@ function liveSignature(mounted, { onlyKind = '', excludeKind = '' } = {}) {
 // 三个页面的「实时区」：出图条 + 状态行。轮询只刷新这些节点。
 const LIVE_REGIONS = [
   { key: 'generate', output: 'output', status: 'status', onlyKind: '', excludeKind: '微调角色' },
+  { key: 'hot', output: 'hotchibi-output', status: 'hotchibi-status', onlyKind: '热门Q版', excludeKind: '' },
   { key: 'tune', output: 'tune-output', status: 'tune-status', onlyKind: '微调角色', excludeKind: '' },
 ];
 
 function statusTextOf(mounted, key) {
   if (key === 'tune') return mounted.tuneStatusText || '';
+  if (key === 'hot') return (mounted.hot && mounted.hot.status) || '';
   return mounted.statusText || '';
 }
 
@@ -3669,6 +3672,122 @@ function startTunePolling(doc) {
   mounted.tunePollTimer = setTimer(() => { void tick(); }, mounted.pollMs || TASK_POLL_MS_LOCAL);
 }
 
+
+// ---------------- 热门Q版：上传正比图 → 直接出 Q 版 ----------------
+
+// 上传的正比图多是 2K 官方立绘，先等比压到长边 1024：base64 会把请求体撑爆。
+function resizeDataUrl(doc, dataUrl, maxEdge = 1024) {
+  return new Promise((resolve) => {
+    const view = doc.defaultView;
+    if (!view || typeof view.Image !== 'function') { resolve(dataUrl); return; }
+    const img = new view.Image();
+    img.onload = () => {
+      const w = img.naturalWidth || img.width || 1;
+      const h = img.naturalHeight || img.height || 1;
+      const long = Math.max(w, h);
+      if (long <= maxEdge) { resolve(dataUrl); return; }
+      const scale = maxEdge / long;
+      const canvas = doc.createElement('canvas');
+      canvas.width = Math.max(2, Math.round(w * scale));
+      canvas.height = Math.max(2, Math.round(h * scale));
+      const ctx = canvas.getContext && canvas.getContext('2d');
+      if (!ctx) { resolve(dataUrl); return; }
+      try {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/png'));
+      } catch {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+function hotReady(hot) {
+  return Boolean(hot && hot.a);
+}
+
+// 页面控件与 mounted.hot 对齐：预览图、张数、瞳色、生成按钮门禁。
+function paintHotPage(doc) {
+  const mounted = mounts.get(doc);
+  const hot = mounted && mounted.hot;
+  if (!hot) return;
+  for (const [key, boxId] of [['a', 'hotchibi-preview-a'], ['b', 'hotchibi-preview-b']]) {
+    const box = doc.getElementById(boxId);
+    if (!box) continue;
+    const src = hot[key];
+    box.hidden = !src;
+    const img = box.querySelector('img');
+    if (img && src) img.src = src;
+  }
+  const count = doc.getElementById('hotchibi-count');
+  if (count) count.value = String(hot.count || 1);
+  const eye = doc.getElementById('hotchibi-eye');
+  if (eye) eye.value = hot.eyeColor || '跟随参考图';
+  const btn = doc.getElementById('hotchibi-generate');
+  if (btn) btn.disabled = !hotReady(hot) || Boolean(mounted.generating);
+}
+
+// 瞳色选项直接来自 catalog，避免这里再抄一份颜色清单。
+function fillHotEyeOptions(doc) {
+  const select = doc.getElementById('hotchibi-eye');
+  if (!select || select.dataset.filled === '1') return;
+  for (const opt of OPTIONS.eyeColor || []) {
+    const node = doc.createElement('option');
+    node.value = opt.value;
+    node.textContent = opt.value;
+    select.appendChild(node);
+  }
+  select.dataset.filled = '1';
+}
+
+async function onHotFile(doc, which, file) {
+  const mounted = mounts.get(doc);
+  if (!mounted || !file) return;
+  if (!file.type || !file.type.startsWith('image/')) { showToast(doc, '只接受图片文件'); return; }
+  const raw = await fileToDataUrl(doc, file);
+  if (!raw || !raw.startsWith('data:image/')) { showToast(doc, '读取图片失败'); return; }
+  mounted.hot[which] = await resizeDataUrl(doc, raw, 1024);
+  paintHotPage(doc);
+  showToast(doc, which === 'a' ? '已添加角色图 1' : '已添加角色图 2');
+}
+
+async function startHotChibi(doc) {
+  const mounted = mounts.get(doc);
+  if (!mounted || mounted.generating || !hotReady(mounted.hot)) return;
+  const hot = mounted.hot;
+  const report = (text) => { hot.status = text; paintLiveRegions(doc); };
+  mounted.generating = true;
+  mounted.liveItems = [];
+  report('正在生成热门Q版…');
+  paintHotPage(doc);
+  // 该页不读工作台的设定表单：身份全部来自上传的正比图，这里只借 state 传风格与瞳色。
+  const state = { ...defaultState(), eyeColor: hot.eyeColor || '跟随参考图' };
+  try {
+    const plan = await buildKindPlan({
+      kind: '热门Q版',
+      state,
+      gallery: mounted.gallery,
+      images: {},
+      fetcher: mounted.fetcher || browserFetcher,
+      snapshot: { upload: null, base: null, clothingPair: null, hots: [hot.a, hot.b].filter(Boolean) },
+      baseCount: hot.count || 1,
+      model: modelForGenerate('热门Q版'),
+    });
+    await runPlanAsTask(doc, plan, { report, onImage: () => paintLiveRegions(doc) });
+    report('已生成热门Q版');
+  } catch (error) {
+    if (isStopped(error)) report('已停止生成');
+    else report(error && error.message ? error.message : '生成失败');
+  } finally {
+    mounted.generating = false;
+    mounted.liveItems = [];
+    paintHotPage(doc);
+    paintLiveRegions(doc);
+  }
+}
+
 function render(doc, model) {
   const mounted = mounts.get(doc) || {};
   rememberOpenFines(doc, mounted);
@@ -3731,6 +3850,9 @@ function render(doc, model) {
   // 整页已经按当前数据重建过三个出图区，记下签名，下一轮轮询不会再多写一次。
   resetLiveSigs(mounted);
   applyProgress(doc, mounted.progress);
+  // 热门Q版页是静态骨架 + 局部同步：这里把预览图/张数/瞳色/按钮门禁对齐一次。
+  fillHotEyeOptions(doc);
+  paintHotPage(doc);
 }
 
 function resetLiveSigs(mounted) {
@@ -4334,6 +4456,22 @@ function onClick(doc, event) {
     void startGenerate(doc, generate.dataset.generate);
     return;
   }
+  if (mounted.hot) {
+    if (event.target.id === 'hotchibi-count') {
+      mounted.hot.count = Math.min(4, Math.max(1, Number(event.target.value) || 1));
+      return;
+    }
+    if (event.target.id === 'hotchibi-eye') {
+      mounted.hot.eyeColor = event.target.value || '跟随参考图';
+      return;
+    }
+  }
+  if (event.target.closest('#hotchibi-generate')) {
+    const btn = event.target.closest('#hotchibi-generate');
+    if (btn.disabled || mounted.generating) return;
+    void startHotChibi(doc);
+    return;
+  }
   const presetButton = event.target.closest('[data-preset]');
   if (presetButton) {
     const preset = PRESETS.find((item) => item.id === presetButton.dataset.preset);
@@ -4544,6 +4682,14 @@ function onChange(doc, event) {
   }
   if (el.id === 'handsheet-file') {
     onHandSheetFile(doc, el);
+    return;
+  }
+  if (el.id === 'hotchibi-file-a' || el.id === 'hotchibi-file-b') {
+    const which = el.id === 'hotchibi-file-a' ? 'a' : 'b';
+    const picked = el.files && el.files[0];
+    // 清空选择：同一张图再选一次也要能触发 change。
+    try { el.value = ''; } catch { /* 只读环境忽略 */ }
+    if (picked) void onHotFile(doc, which, picked);
     return;
   }
   if (el.id === 'watermark-file') {
@@ -4796,6 +4942,7 @@ export function mount(doc, { store, gallery, images = { reference: null }, fetch
     wallpaper2Raw: null, wallpaper2MasterStatus: '', wallpaperMaster: null,
     wallpaper2Batch: [], wallpaper2BatchBusy: false, wallpaper2BatchAbort: null, wallpaper2BatchStatus: '',
     wallpaperSourceName: '',
+    hot: { a: null, b: null, count: 1, eyeColor: '跟随参考图', status: '' },
     paint: () => {},
   };
   mounts.set(doc, record);

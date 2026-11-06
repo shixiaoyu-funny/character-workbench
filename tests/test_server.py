@@ -71,7 +71,7 @@ from server.app import (
     COLOR_LOCK_MAX_GAIN,
 )
 from server.db import init_db, insert_image, list_images
-from server.oss import oss_enabled, oss_settings
+from server.oss import oss_enabled, oss_settings, new_object_key
 # 别名导入：直接叫 test_connection 会被 pytest 当成测试用例收集而报 fixture 错误。
 from server.oss import test_connection as oss_test_connection
 
@@ -1899,3 +1899,11 @@ class FfmpegErrorTailTests(unittest.TestCase):
         self.assertGreaterEqual(_WALLPAPER_EXPORT_WORKERS, 1)
         self.assertLessEqual(_WALLPAPER_EXPORT_WORKERS, 4)
         self.assertGreaterEqual(_WALLPAPER_EXPORT_THREADS, 1)
+
+
+class HotChibiSlugTests(unittest.TestCase):
+    def test_hot_chibi_gets_its_own_oss_folder(self):
+        key = new_object_key("热门Q版")
+        self.assertTrue(key.startswith("role-images/hotchibi/"), key)
+        # 未知图种仍回退到 image/，不要抛错。
+        self.assertTrue(new_object_key("未知图种").startswith("role-images/image/"))

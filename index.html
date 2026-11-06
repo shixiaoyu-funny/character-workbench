@@ -33,6 +33,7 @@
         <button type="button" class="nav-item" data-route="detail" aria-current="false">细节样式</button>
         <button type="button" class="nav-item" data-route="tune" aria-current="false">角色定向微调</button>
         <button type="button" class="nav-item" data-route="generate" aria-current="false">生成与处理（一般）</button>
+        <button type="button" class="nav-item" data-route="hotchibi" aria-current="false">热门Q版</button>
         <button type="button" class="nav-item" data-route="watermark" aria-current="false">批量水印</button>
         <button type="button" class="nav-item" data-route="wallpaper" aria-current="false">动态壁纸</button>
         <button type="button" class="nav-item" data-route="tasks" aria-current="false">任务队列</button>
@@ -45,6 +46,56 @@
       <section id="page-detail" class="page" data-page="detail" hidden></section>
       <section id="page-tune" class="page" data-page="tune" hidden></section>
       <section id="page-generate" class="page" data-page="generate" hidden></section>
+      <section id="page-hotchibi" class="page" data-page="hotchibi" hidden>
+        <div class="hot-shell">
+          <div class="hot-head">
+            <div>
+              <h2>热门Q版角色生成</h2>
+              <p class="model-note">上传<strong>同一个角色</strong>的正比立绘 1~2 张（第 2 张可选，用来互相印证身份），系统自动配 1 张 Q 版风格参考图，直接出 Q 版全身立绘。两张图如果传成两个角色，出图会是混合体。</p>
+            </div>
+          </div>
+
+          <div class="hot-grid">
+            <div class="upload-drop wm-drop" data-upload-zone="hotchibi-file-a">
+              <label>① 正比角色图（必填）
+                <input type="file" id="hotchibi-file-a" accept="image/*">
+              </label>
+              <div class="hot-preview" id="hotchibi-preview-a" hidden><img alt="角色图 1"></div>
+            </div>
+            <div class="upload-drop wm-drop" data-upload-zone="hotchibi-file-b">
+              <label>② 正比角色图（可选，同一个角色）
+                <input type="file" id="hotchibi-file-b" accept="image/*">
+              </label>
+              <div class="hot-preview" id="hotchibi-preview-b" hidden><img alt="角色图 2"></div>
+            </div>
+          </div>
+
+          <div class="hot-controls">
+            <label>张数
+              <select id="hotchibi-count">
+                <option value="1" selected>1 张</option>
+                <option value="2">2 张</option>
+                <option value="3">3 张</option>
+                <option value="4">4 张</option>
+              </select>
+            </label>
+            <label>瞳色
+              <select id="hotchibi-eye"></select>
+            </label>
+            <span class="model-note">瞳色选「跟随角色图」时全靠图 1、图 2；选具体色则用文字钉死。</span>
+          </div>
+
+          <div class="gen gen-full">
+            <button type="button" class="gen-btn" id="hotchibi-generate" disabled>生成 Q 版</button>
+          </div>
+          <div id="hotchibi-status" class="wp-status"></div>
+          <div id="hotchibi-progress" class="wp-progress" hidden>
+            <div class="wp-progress-track"><div id="hotchibi-progress-bar" class="wp-progress-bar"></div></div>
+            <span id="hotchibi-progress-label" class="wp-progress-label">0%</span>
+          </div>
+          <div id="hotchibi-output" class="output-strip"></div>
+        </div>
+      </section>
       <section id="page-watermark" class="page" data-page="watermark" hidden></section>
       <section id="page-wallpaper" class="page" data-page="wallpaper" hidden>
         <div class="wp-sheet">

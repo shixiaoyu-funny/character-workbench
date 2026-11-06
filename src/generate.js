@@ -215,6 +215,16 @@ function planShot({ kind, snapshot, randomSeed, used, maxReferences = 10 }) {
     }
     return { seed: takeSeed(randomSeed, used), referenceImages: [], hasReference: false };
   }
+  // 热门Q版：身份只来自用户现场上传的正比立绘（1~2 张），不吃锁定基准。
+  // 风格图由 buildStep 追加 1 张，排在正比图之后（图 3）。
+  if (kind === '热门Q版') {
+    const hots = Array.isArray(snapshot.hots) ? snapshot.hots.filter(Boolean).slice(0, 2) : [];
+    return {
+      seed: takeSeed(randomSeed, used),
+      referenceImages: hots,
+      hasReference: hots.length > 0,
+    };
+  }
   if (kind === '基准立绘') {
     return {
       seed: takeSeed(randomSeed, used),
@@ -260,14 +270,17 @@ async function buildStep({
   const chosen = resolveImageModel(model);
   const plan = planShot({ kind, snapshot, randomSeed, used, maxReferences: chosen.maxReferences });
   let refs = plan.referenceImages.map((value) => toRef(value, transform));
+  const charCount = refs.length;
   let styleCount = 0;
-  if (kind === 'Q版形象') {
+  if (kind === 'Q版形象' || kind === '热门Q版') {
     const data = await fetcher('/api/chibi-style', { method: 'GET' });
     const styles = data && Array.isArray(data.images) ? data.images.filter(Boolean) : [];
     // 风格图只作为多图输入。参考图上限随模型变：qwen-image-3.0 是 3 张，其余到 10 张。
     // 锁脸基准排在风格图前面，名额不够时先丢掉后面的风格图。
     const room = Math.max(0, chosen.maxReferences - refs.length);
-    const picked = styles.slice(0, room);
+    // 热门Q版固定只用 1 张风格图（图库风格图是「画法」样本，多给只会抢配色）。
+    const limit = kind === '热门Q版' ? Math.min(1, room) : room;
+    const picked = styles.slice(0, limit);
     styleCount = picked.length;
     refs = [...refs, ...picked.map(literal)];
   }
@@ -279,7 +292,7 @@ async function buildStep({
   const effectiveState = locked
     ? { ...locked, eyeColor: state.eyeColor, eyeColorCustom: state.eyeColorCustom }
     : state;
-  const built = buildPrompt(effectiveState, kind, { hasReference: plan.hasReference, styleCount });
+  const built = buildPrompt(effectiveState, kind, { hasReference: plan.hasReference, styleCount, charCount });
   return {
     kind,
     title: title || kind,
@@ -477,7 +490,9 @@ export async function buildKindPlan({
     }
   }
   const requested = Number.isInteger(baseCount) ? baseCount : 4;
-  const count = kind === '基准立绘' ? Math.min(4, Math.max(1, requested)) : 1;
+  // 基准立绘与热门Q版都按 baseCount 出多张（1~4），其余图种固定 1 张。
+  const multi = kind === '基准立绘' || kind === '热门Q版';
+  const count = multi ? Math.min(4, Math.max(1, requested)) : 1;
   const used = new Set();
   const batchId = newBatchId();
   const pairBase = isPairSheet(kind) ? frozen.clothingPair.base : null;
