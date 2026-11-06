@@ -955,10 +955,34 @@ test('the current eye colour wins over the locked base snapshot', async () => {
   assert.ok(job.prompt.includes('瞳色固定为「棕」'));
 });
 
-// 热门Q版：两张正比图在前，风格图只取 1 张排在最后；张数走 baseCount。
-test('hot chibi feeds two character sheets then exactly one style reference', async () => {
+// 热门Q版：只取 1 张角色图在前、1 张风格图在后；张数走 baseCount。
+test('hot chibi sends one character sheet then exactly one style reference', async () => {
   const gallery = createGallery();
   const { streamCalls, fetcher, streamFetcher } = recording({ styleImages: [STYLE, STYLE2] });
+  const A = 'data:image/png;base64,HOTA';
+  await generateKind({
+    kind: '热门Q版',
+    state: defaultState(),
+    gallery,
+    images: {},
+    fetcher,
+    streamFetcher,
+    randomSeed: sequence(5),
+    snapshot: { upload: null, base: null, clothingPair: null, hots: [A] },
+    baseCount: 2,
+  });
+  const jobs = jobsOf(streamCalls);
+  assert.equal(jobs.length, 2, 'baseCount 2 must produce two images');
+  // 风格图只取第一张：STYLE2 不能被塞进去。
+  assert.deepEqual(jobs[0].referenceImages, [A, STYLE]);
+  assert.equal(jobs[0].model, 'qwen-image-3.0');
+  assert.ok(jobs[0].prompt.includes('图 2 只提供 Q 版画法'));
+});
+
+// 页面已经只留一个上传口，但底层仍要守住：多给的第二张会被丢掉，不会变成图 2。
+test('hot chibi ignores a second character sheet if one sneaks in', async () => {
+  const gallery = createGallery();
+  const { streamCalls, fetcher, streamFetcher } = recording({ styleImages: [STYLE] });
   const A = 'data:image/png;base64,HOTA';
   const B = 'data:image/png;base64,HOTB';
   await generateKind({
@@ -968,32 +992,8 @@ test('hot chibi feeds two character sheets then exactly one style reference', as
     images: {},
     fetcher,
     streamFetcher,
-    randomSeed: sequence(5),
-    snapshot: { upload: null, base: null, clothingPair: null, hots: [A, B] },
-    baseCount: 2,
-  });
-  const jobs = jobsOf(streamCalls);
-  assert.equal(jobs.length, 2, 'baseCount 2 must produce two images');
-  assert.deepEqual(jobs[0].referenceImages, [A, B, STYLE]);
-  assert.equal(jobs[0].model, 'qwen-image-3.0');
-  assert.ok(jobs[0].prompt.includes('图 3 只提供 Q 版画法'));
-});
-
-test('hot chibi works with a single character sheet', async () => {
-  const gallery = createGallery();
-  const { streamCalls, fetcher, streamFetcher } = recording({ styleImages: [STYLE] });
-  const A = 'data:image/png;base64,HOTA';
-  await generateKind({
-    kind: '热门Q版',
-    state: defaultState(),
-    gallery,
-    images: {},
-    fetcher,
-    streamFetcher,
     randomSeed: sequence(6),
-    snapshot: { upload: null, base: null, clothingPair: null, hots: [A] },
+    snapshot: { upload: null, base: null, clothingPair: null, hots: [A, B] },
   });
-  const job = jobsOf(streamCalls)[0];
-  assert.deepEqual(job.referenceImages, [A, STYLE]);
-  assert.ok(job.prompt.includes('图 2 只提供 Q 版画法'));
+  assert.deepEqual(jobsOf(streamCalls)[0].referenceImages, [A, STYLE]);
 });

@@ -966,12 +966,12 @@ test('eye colour reaches the turnaround and the expression chart too', () => {
   }
 });
 
-// 热门Q版：身份全部来自上传的正比图，风格图只占 1 张且排在最后。
-test('hot chibi splits two character sheets from one style reference', () => {
-  const p = buildPrompt(defaultState(), '热门Q版', { hasReference: true, styleCount: 1, charCount: 2 });
-  assert.ok(p.positive.includes('同一个角色的两张正比立绘'));
-  assert.ok(p.positive.includes('不是两个人'));
-  assert.ok(p.positive.includes('图 3 只提供 Q 版画法'));
+// 热门Q版：只收 1 张角色图，风格图固定排在图 2；成品只许画一个角色。
+test('hot chibi reads one character sheet and one style reference', () => {
+  const p = buildPrompt(defaultState(), '热门Q版', { hasReference: true, styleCount: 1, charCount: 1 });
+  assert.ok(p.positive.includes('图 1 是角色参考图'));
+  assert.ok(p.positive.includes('成品只画这一个角色'));
+  assert.ok(p.positive.includes('图 2 只提供 Q 版画法'));
   assert.ok(p.positive.includes('(2 heads tall:1.6)'));
   // 身份来自上传图，所以一个工作台角色标签都不该出现。
   assert.equal(p.positive.includes('twintails'), false);
@@ -979,15 +979,16 @@ test('hot chibi splits two character sheets from one style reference', () => {
   assert.equal(p.aspect, '1:1');
 });
 
-test('hot chibi renumbers the style reference when only one sheet is uploaded', () => {
-  const p = buildPrompt(defaultState(), '热门Q版', { hasReference: true, styleCount: 1, charCount: 1 });
-  assert.ok(p.positive.includes('图 1 是角色参考图'));
-  assert.ok(p.positive.includes('图 2 只提供 Q 版画法'));
+test('hot chibi drops the style clause when the style image is missing', () => {
+  const p = buildPrompt(defaultState(), '热门Q版', { hasReference: true, styleCount: 0, charCount: 1 });
+  assert.equal(p.positive.includes('只提供 Q 版画法'), false);
+  assert.ok(p.positive.includes('头身比与画风按下面的 Q 版指令来'));
 });
 
-test('hot chibi keeps the eye colour clause and pins the single-character negatives', () => {
-  const p = buildPrompt({ ...defaultState(), eyeColor: '棕' }, '热门Q版', { hasReference: true, styleCount: 1, charCount: 2 });
+test('hot chibi pins the eye colour and forbids a second character', () => {
+  const p = buildPrompt({ ...defaultState(), eyeColor: '棕' }, '热门Q版', { hasReference: true, styleCount: 1, charCount: 1 });
   assert.ok(p.positive.includes('瞳色固定为「棕」'));
-  assert.ok(p.negative.includes('(two different characters:1.4)'));
+  assert.ok(p.negative.includes('(two characters:1.5)'));
+  assert.ok(p.negative.includes('(second person:1.5)'));
   assert.ok(p.negative.includes('(complex background:1.3)'));
 });

@@ -2558,3 +2558,8 @@ option, optgroup { background: var(--panel); color: var(--text); }
   color: var(--text);
   font-size: 13px;
 }
+
+.hot-rules { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.hot-rules li { font-size: 13px; line-height: 1.6; }
+.hot-rules li.ok { color: var(--text); }
+.hot-rules li.no { color: #c0392b; }

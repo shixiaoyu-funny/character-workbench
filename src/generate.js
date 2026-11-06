@@ -215,10 +215,10 @@ function planShot({ kind, snapshot, randomSeed, used, maxReferences = 10 }) {
     }
     return { seed: takeSeed(randomSeed, used), referenceImages: [], hasReference: false };
   }
-  // 热门Q版：身份只来自用户现场上传的正比立绘（1~2 张），不吃锁定基准。
+  // 热门Q版：身份只来自用户现场上传的那 1 张正比立绘，不吃锁定基准。
   // 风格图由 buildStep 追加 1 张，排在正比图之后（图 3）。
   if (kind === '热门Q版') {
-    const hots = Array.isArray(snapshot.hots) ? snapshot.hots.filter(Boolean).slice(0, 2) : [];
+    const hots = Array.isArray(snapshot.hots) ? snapshot.hots.filter(Boolean).slice(0, 1) : [];
     return {
       seed: takeSeed(randomSeed, used),
       referenceImages: hots,

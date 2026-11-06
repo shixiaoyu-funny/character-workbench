@@ -100,12 +100,12 @@ const CHIBI_LOCK_SENTENCE = '(same face as the first reference:1.5)';
 // 与「Q版形象」的区别只在输入源：那边是锁定的基准立绘 + 全部风格图，
 // 这边是用户现场传的 1~2 张正比立绘 + 固定 1 张风格图。
 // 身份全部来自正比图，所以提示词里不拼任何角色标签（tagSequence 为空）。
+// 只收 1 张角色图：角色图 = 图 1，风格图 = 图 2。
+// 「成品只画一个角色」必须写死：用户很可能传一张双人截图，模型会忠实地把两个人都画出来。
 function hotChibiRoleClause(charCount, styleCount) {
-  const styleIndex = charCount + 1;
-  const identity = charCount >= 2
-    ? '图 1 与图 2 是同一个角色的两张正比立绘，它们共同定义角色的长相、五官、发色、'
-      + '瞳色、服装与配色；这两张图是同一人，不是两个人。'
-    : '图 1 是角色参考图，角色的长相、五官、发色、瞳色、服装与配色全部以它为准。';
+  const styleIndex = Math.max(1, charCount) + 1;
+  const identity = '图 1 是角色参考图，角色的长相、五官、发色、瞳色、服装与配色全部以它为准；'
+    + '成品只画这一个角色，图 1 里如果还有别的角色，一律不要画进成品。';
   if (!styleCount) {
     return `${identity}头身比与画风按下面的 Q 版指令来。`;
   }
@@ -151,8 +151,9 @@ const NEGATIVE = {
   热门Q版: [...CHIBI_NEGATIVE, 'tall', 'slim waist', 'adult body',
     // 正比原图多半带背景与特效，Q 版必须是干净白底立绘。
     '(complex background:1.3)', '(scenery:1.2)', '(text:1.3)', '(watermark:1.4)',
-    // 两张正比图不是同一角色时会画出混合体，这里把「多角色」显式排掉。
-    '(two different characters:1.4)', '(different faces:1.4)', '(group:1.3)'],
+    // 用户很可能传双人截图，模型会照着画两个人；把「多角色」显式排掉。
+    '(two characters:1.5)', '(second person:1.5)', '(background characters:1.4)',
+    '(group:1.3)', '(different faces:1.4)'],
 };
 
 // 单一生成风格：二次元风格（赛璐璐平涂，米哈游风）。写实风已删除。

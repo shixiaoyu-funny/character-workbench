@@ -3713,13 +3713,11 @@ function paintHotPage(doc) {
   const mounted = mounts.get(doc);
   const hot = mounted && mounted.hot;
   if (!hot) return;
-  for (const [key, boxId] of [['a', 'hotchibi-preview-a'], ['b', 'hotchibi-preview-b']]) {
-    const box = doc.getElementById(boxId);
-    if (!box) continue;
-    const src = hot[key];
-    box.hidden = !src;
+  const box = doc.getElementById('hotchibi-preview-a');
+  if (box) {
+    box.hidden = !hot.a;
     const img = box.querySelector('img');
-    if (img && src) img.src = src;
+    if (img && hot.a) img.src = hot.a;
   }
   const count = doc.getElementById('hotchibi-count');
   if (count) count.value = String(hot.count || 1);
@@ -3742,15 +3740,15 @@ function fillHotEyeOptions(doc) {
   select.dataset.filled = '1';
 }
 
-async function onHotFile(doc, which, file) {
+async function onHotFile(doc, file) {
   const mounted = mounts.get(doc);
   if (!mounted || !file) return;
   if (!file.type || !file.type.startsWith('image/')) { showToast(doc, '只接受图片文件'); return; }
   const raw = await fileToDataUrl(doc, file);
   if (!raw || !raw.startsWith('data:image/')) { showToast(doc, '读取图片失败'); return; }
-  mounted.hot[which] = await resizeDataUrl(doc, raw, 1024);
+  mounted.hot.a = await resizeDataUrl(doc, raw, 1024);
   paintHotPage(doc);
-  showToast(doc, which === 'a' ? '已添加角色图 1' : '已添加角色图 2');
+  showToast(doc, '已添加角色图；请确认是单人正比立绘');
 }
 
 async function startHotChibi(doc) {
@@ -3771,7 +3769,7 @@ async function startHotChibi(doc) {
       gallery: mounted.gallery,
       images: {},
       fetcher: mounted.fetcher || browserFetcher,
-      snapshot: { upload: null, base: null, clothingPair: null, hots: [hot.a, hot.b].filter(Boolean) },
+      snapshot: { upload: null, base: null, clothingPair: null, hots: [hot.a] },
       baseCount: hot.count || 1,
       model: modelForGenerate('热门Q版'),
     });
@@ -4684,12 +4682,11 @@ function onChange(doc, event) {
     onHandSheetFile(doc, el);
     return;
   }
-  if (el.id === 'hotchibi-file-a' || el.id === 'hotchibi-file-b') {
-    const which = el.id === 'hotchibi-file-a' ? 'a' : 'b';
+  if (el.id === 'hotchibi-file-a') {
     const picked = el.files && el.files[0];
     // 清空选择：同一张图再选一次也要能触发 change。
     try { el.value = ''; } catch { /* 只读环境忽略 */ }
-    if (picked) void onHotFile(doc, which, picked);
+    if (picked) void onHotFile(doc, picked);
     return;
   }
   if (el.id === 'watermark-file') {
@@ -4942,7 +4939,7 @@ export function mount(doc, { store, gallery, images = { reference: null }, fetch
     wallpaper2Raw: null, wallpaper2MasterStatus: '', wallpaperMaster: null,
     wallpaper2Batch: [], wallpaper2BatchBusy: false, wallpaper2BatchAbort: null, wallpaper2BatchStatus: '',
     wallpaperSourceName: '',
-    hot: { a: null, b: null, count: 1, eyeColor: '跟随参考图', status: '' },
+    hot: { a: null, count: 1, eyeColor: '跟随参考图', status: '' },
     paint: () => {},
   };
   mounts.set(doc, record);

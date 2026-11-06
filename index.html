@@ -51,22 +51,21 @@
           <div class="hot-head">
             <div>
               <h2>热门Q版角色生成</h2>
-              <p class="model-note">上传<strong>同一个角色</strong>的正比立绘 1~2 张（第 2 张可选，用来互相印证身份），系统自动配 1 张 Q 版风格参考图，直接出 Q 版全身立绘。两张图如果传成两个角色，出图会是混合体。</p>
+              <p class="model-note">上传<strong>1 张</strong>正比立绘，系统自动配 1 张 Q 版风格参考图，直接出 Q 版全身立绘。</p>
+              <ul class="hot-rules">
+                <li class="ok">✅ 单人、全身、正比（约 7 头身）、纯色或干净背景</li>
+                <li class="no">❌ 双人图、组队截图、带 UI 的屏摄 —— 模型会把画面里的人都画出来</li>
+                <li class="no">❌ 已经是 Q 版的图 —— 会被再 Q 一次，五官压扁、头身比打架</li>
+              </ul>
             </div>
           </div>
 
           <div class="hot-grid">
             <div class="upload-drop wm-drop" data-upload-zone="hotchibi-file-a">
-              <label>① 正比角色图（必填）
+              <label>正比角色图（必填，单人）
                 <input type="file" id="hotchibi-file-a" accept="image/*">
               </label>
-              <div class="hot-preview" id="hotchibi-preview-a" hidden><img alt="角色图 1"></div>
-            </div>
-            <div class="upload-drop wm-drop" data-upload-zone="hotchibi-file-b">
-              <label>② 正比角色图（可选，同一个角色）
-                <input type="file" id="hotchibi-file-b" accept="image/*">
-              </label>
-              <div class="hot-preview" id="hotchibi-preview-b" hidden><img alt="角色图 2"></div>
+              <div class="hot-preview" id="hotchibi-preview-a" hidden><img alt="角色图"></div>
             </div>
           </div>
 
