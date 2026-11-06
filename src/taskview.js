@@ -296,7 +296,7 @@ export function renderTaskBoard(tasks, {
   // 一栏都没东西才算「还没有任务」，否则空栏只给自己的简短提示。
   const boardEmpty = Array.isArray(tasks) && tasks.length
     ? '<p class="task-empty">这个队列暂时没有任务，切到「全部」看看。</p>'
-    : '<p class="task-empty">还没有任务。生成、微调、换衣走生成队列，动态壁纸走壁纸处理队列，提交后都会出现在这里。</p>';
+    : '<p class="task-empty">还没有任务。生成、微调走生成队列，动态壁纸走壁纸处理队列，提交后都会出现在这里。</p>';
 
   const columns = TASK_GROUPS.map((group) => {
     const paged = paginateTasks(buckets[group.id], pages[group.id], pageSize);
@@ -330,7 +330,6 @@ export function routeForTask(task) {
   if (task.kind === 'image') {
     const title = String(task.title || '');
     if (title.includes('微调')) return 'tune';
-    if (title.includes('换衣')) return 'dressup';
     return 'generate';
   }
   return 'generate';

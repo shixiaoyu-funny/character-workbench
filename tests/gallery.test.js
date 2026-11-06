@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { createGallery, loadPersisted } from '../src/gallery.js';
 import { generateKind, generateSuite, requestImagesStream, browserStreamFetcher, isStopped } from '../src/generate.js';
-import { BASE_IMAGE_MODEL, CHIBI_IMAGE_MODEL, DRESSUP_IMAGE_MODEL, SUITE_IMAGE_MODEL, TUNE_IMAGE_MODEL, modelForDressup, modelForGenerate } from '../src/imageModels.js';
+import { BASE_IMAGE_MODEL, CHIBI_IMAGE_MODEL, SUITE_IMAGE_MODEL, TUNE_IMAGE_MODEL, modelForGenerate } from '../src/imageModels.js';
 import { defaultState } from '../src/state.js';
 
 const PNG = 'data:image/png;base64,AA==';
@@ -557,21 +557,6 @@ test('model routing keeps chibi on qwen and the rest on the suite model', () => 
   assert.equal(TUNE_IMAGE_MODEL, 'gemini-3-pro-image-c');
 });
 
-test('dressup routing matches the general page for the base portrait and the five follow-ups', () => {
-  // 基准立绘与一般页同一模型：千问。
-  assert.equal(modelForDressup('换衣基准立绘'), BASE_IMAGE_MODEL);
-  // 五种后续图完全复用一般页的映射。
-  for (const kind of ['三视图', '表情差分图', '服饰拆解图', '手部拆解图', 'Q版形象']) {
-    assert.equal(modelForDressup(kind), modelForGenerate(kind), kind);
-  }
-  // 两张白底三视图改走千问：Gemini 出的人体比例与换衣基准立绘对不上。
-  assert.equal(modelForDressup('换衣三视图'), DRESSUP_IMAGE_MODEL);
-  assert.equal(modelForDressup('换衣头部三视图'), DRESSUP_IMAGE_MODEL);
-  // 只有这两张换；一般页的三视图仍留在 Gemini。
-  assert.equal(modelForDressup('三视图'), SUITE_IMAGE_MODEL);
-  assert.equal(DRESSUP_IMAGE_MODEL, 'qwen-image-3.0');
-});
-
 test('chibi can send the style images alone when there is no character image', async () => {
   const gallery = createGallery();
   const { streamCalls, fetcher, streamFetcher } = recording({ styleImages: [STYLE, STYLE2] });
@@ -944,118 +929,3 @@ test('a request stopped before it starts never opens the stream', async () => {
   assert.equal(gallery.batches().length, 0);
 });
 
-test('the head sheet is planned from the generated body sheet, not from the uploads', async () => {
-  const gallery = createGallery();
-  const { streamCalls, fetcher, streamFetcher } = recording();
-  const BODY = 'data:image/png;base64,BODYSHEET';
-  const dressup = {
-    photos: [UPLOAD, 'data:image/png;base64,UPLOAD2'],
-    bodySheet: { dataUrl: BODY, url: null, seed: 5 },
-    headSheet: null,
-    base: null,
-  };
-  await generateKind({
-    kind: '换衣头部三视图',
-    state: defaultState(),
-    gallery,
-    images: { reference: null },
-    fetcher,
-    streamFetcher,
-    randomSeed: sequence(8),
-    dressup,
-  });
-  const job = jobsOf(streamCalls)[0];
-  // 头部三视图只吃白底三视图一张，不再带用户上传的多角度图。
-  assert.deepEqual(job.referenceImages, [BODY]);
-  // 换衣页两张白底三视图走千问，不再用 Gemini。
-  assert.equal(job.model, 'qwen-image-3.0');
-  assert.equal(job.prompt.includes('image 1 is a full body character turnaround sheet'), true);
-  assert.equal(job.prompt.includes('(take ONLY the head and hair from image 1, keep them identical:1.5)'), true);
-});
-
-test('the head sheet refuses to run without a body sheet', async () => {
-  const gallery = createGallery();
-  const { streamCalls, fetcher, streamFetcher } = recording();
-  await assert.rejects(
-    () => generateKind({
-      kind: '换衣头部三视图',
-      state: defaultState(),
-      gallery,
-      images: { reference: null },
-      fetcher,
-      streamFetcher,
-      randomSeed: sequence(1),
-      dressup: { photos: [UPLOAD], bodySheet: null, headSheet: null, base: null },
-    }),
-    /请先生成白底三视图/,
-  );
-  assert.equal(streamCalls.length, 0);
-});
-
-test('the body sheet still reads the uploaded photos', async () => {
-  const gallery = createGallery();
-  const { streamCalls, fetcher, streamFetcher } = recording();
-  const dressup = { photos: [UPLOAD, 'data:image/png;base64,UPLOAD2'], bodySheet: null, headSheet: null, base: null };
-  await generateKind({
-    kind: '换衣三视图',
-    state: defaultState(),
-    gallery,
-    images: { reference: null },
-    fetcher,
-    streamFetcher,
-    randomSeed: sequence(1),
-    dressup,
-  });
-  assert.deepEqual(jobsOf(streamCalls)[0].referenceImages, [UPLOAD, 'data:image/png;base64,UPLOAD2']);
-  // 白底三视图同样走千问。
-  assert.equal(jobsOf(streamCalls)[0].model, 'qwen-image-3.0');
-});
-
-test('the body sheet caps the references at qwen three', async () => {
-  const gallery = createGallery();
-  const { streamCalls, fetcher, streamFetcher } = recording();
-  const photos = [1, 2, 3, 4].map((n) => `data:image/png;base64,UP${n}`);
-  await generateKind({
-    kind: '换衣三视图',
-    state: defaultState(),
-    gallery,
-    images: { reference: null },
-    fetcher,
-    streamFetcher,
-    randomSeed: sequence(1),
-    dressup: { photos, bodySheet: null, headSheet: null, base: null },
-  });
-  const job = jobsOf(streamCalls)[0];
-  // 千问只吃 3 张参考图：多传的按上传顺序截断，别把请求体撑爆。
-  assert.deepEqual(job.referenceImages, photos.slice(0, 3));
-});
-
-test('the dressup suite picks a model per kind, same as the general page', async () => {
-  const gallery = createGallery();
-  const { streamCalls, fetcher, streamFetcher } = recording();
-  const dressup = {
-    photos: [UPLOAD],
-    bodySheet: { dataUrl: 'data:image/png;base64,BODY', url: null, seed: 3 },
-    headSheet: { dataUrl: 'data:image/png;base64,HEAD', url: null, seed: 4 },
-    base: { dataUrl: 'data:image/png;base64,DBASE', url: null, seed: 5 },
-  };
-  await generateSuite({
-    state: defaultState(),
-    gallery,
-    images: { reference: null },
-    fetcher,
-    streamFetcher,
-    randomSeed: sequence(11),
-    suiteCount: 1,
-    dressup,
-    modelFor: modelForGenerate,
-  });
-  const models = {};
-  for (const call of streamCalls) {
-    for (const job of jobsOf([call])) models[job.kind] = job.model;
-  }
-  assert.equal(models['三视图'], SUITE_IMAGE_MODEL);
-  assert.equal(models['表情差分图'], SUITE_IMAGE_MODEL);
-  assert.equal(models['服饰拆解图'], SUITE_IMAGE_MODEL);
-  assert.equal(models['Q版形象'], CHIBI_IMAGE_MODEL);
-});

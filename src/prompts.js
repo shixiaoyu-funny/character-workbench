@@ -7,7 +7,7 @@ import {
 } from './catalog.js';
 import { clothingExclusions, clothingTerms } from './clothing.js';
 
-export const KINDS = ['基准立绘', '三视图', '表情差分图', '服饰拆解图', '手部拆解图', 'Q版形象', '换衣三视图', '换衣头部三视图', '换衣基准立绘'];
+export const KINDS = ['基准立绘', '三视图', '表情差分图', '服饰拆解图', '手部拆解图', 'Q版形象'];
 
 const LOCK_SENTENCE = '(same face as reference:1.5)';
 
@@ -242,9 +242,6 @@ const ACCESSORY_FIELDS = [
 ];
 // 头饰字段（表情差分只用帽子与三类头饰）。
 const HEADWEAR_FIELDS = ['hat', 'feminineAccessories', 'masculineAccessories', 'fantasyAccessories'];
-// 换衣基准图要跳过的「头部描述」：面部/妆容（FACE_FIELDS）+ 发型 + 头部配饰。
-// 头部长相与发型发色由头部三视图决定，穿搭由服饰与配饰（faceNeck/handsBack）提示词决定。
-const HEAD_SKIP_FIELDS = new Set([...FACE_FIELDS, ...HAIR_FIELDS, ...HEADWEAR_FIELDS]);
 
 function splitTerms(tag) {
   return String(tag).split(/,\s*/).map((t) => t.trim()).filter(Boolean);
@@ -306,7 +303,7 @@ function customColorTerms(field, value, state) {
 // 按字段顺序收集标签，展开成英文术语并去重。
 // 种族（精灵尖耳/兽耳/恶魔角/光环）先于头饰收集，
 // 同名术语只出现一次，因此头饰里对应的耳朵、角、光环自然不再重复输出。
-function collect(state, fields, { skipFace = false, sanitize = null, skipFields = null } = {}) {
+function collect(state, fields, { skipFace = false, sanitize = null } = {}) {
   const terms = [];
   const seen = new Set();
   const push = (term, field) => {
@@ -328,7 +325,6 @@ function collect(state, fields, { skipFace = false, sanitize = null, skipFields 
       continue;
     }
     if (skipFace && FACE_FIELDS.includes(field)) continue;
-    if (skipFields && skipFields.has(field)) continue;
     const values = Array.isArray(state[field]) ? state[field] : [state[field]];
     for (const value of values) {
       for (const term of splitTerms(tagOf(field, value))) push(term, field);
@@ -425,9 +421,6 @@ export function buildPrompt(state, kind, { hasReference = false, styleCount = 0 
   if (!KINDS.includes(kind)) {
     throw new Error(`未知图种: ${kind}`);
   }
-  if (kind === '换衣三视图') return buildBodySheetPrompt();
-  if (kind === '换衣头部三视图') return buildHeadSheetPrompt();
-  if (kind === '换衣基准立绘') return buildDressupBasePrompt(state);
   if (kind === '服饰拆解图') {
     return {
       positive: CLOTHING_POSITIVE,
@@ -539,169 +532,6 @@ export function buildPrompt(state, kind, { hasReference = false, styleCount = 0 
   };
 }
 
-// ---------------- 换衣页提示词 ----------------
-// 三套提示词来自调研结论：逐个图位声明顺序与内容，且每个要素各重复一次一致性约束，
-// 比写一次 "consistent character" 有效得多；参考图要先声明它是什么、有什么用。
-
-// 白底三视图：从多张参考图生成同一角色的全身正/侧/背三视图。
-// 这是整条换衣链路的基石，所以约束写得最硬，分四层：
-//   ① 参考图定位：上传图是同一角色的多角度照片，是唯一事实来源。
-//   ② 画风 1:1：不许重绘、不许换画风、不许改线条与上色方式。
-//   ③ 身材 1:1：身高、头身比、肩宽、腰围、胯宽、四肢长度与粗细全部照抄，禁止变瘦拉长。
-//   ④ 禁止凭空增加零件：尾巴/兽耳/角/翅膀/多余肢体一概不许，但参考图里本来就有的服饰与配饰必须保留。
-// 另加一条空手：参考图里角色可能拿武器/道具，模型会照抄，道具会被当成身体的一部分。
-export function buildBodySheetPrompt() {
-  return {
-    positive: [
-      'the uploaded reference images show ONE single character from several angles, '
-        + 'they are the only source of truth',
-      '(ignore the background, interface and lighting of the reference images:1.4)',
-      '(do not copy the pose or camera angle of the reference images:1.3)',
-      'character turnaround reference sheet',
-      'three equal panels side by side on a pure white background',
-      '[PANEL 1] full body FRONT view, facing the camera, neutral A-pose, arms slightly away from the body',
-      '[PANEL 2] full body LEFT PROFILE, exact 90-degree side view, identical pose and identical height',
-      '[PANEL 3] full body BACK view, facing completely away, the back of the hair and costume clearly visible',
-      // ② 画风 1:1
-      '(strictly keep the original art style of the reference images:1.5)',
-      '(same lineart weight, same coloring, same rendering technique as the reference:1.4)',
-      'do not restyle, do not repaint, do not change the art style',
-      // ③ 身材 1:1
-      '(identical body proportions to the reference images:1.5)',
-      '(same total height and same head-to-body ratio as the reference:1.4)',
-      '(same shoulder width, same waist, same hip width as the reference:1.4)',
-      '(same leg length, same leg thickness, same arm length, same arm thickness as the reference:1.4)',
-      'do not slim the body, do not lengthen the legs, do not change the body build',
-      // ④ 不增不减
-      '(exactly two arms and two legs, no extra limbs:1.4)',
-      'the same number of limbs, ears and body parts as the reference images',
-      'do not add any body part, weapon, prop or accessory that is not visible in the reference images',
-      'keep every garment, accessory and detail that IS present in the reference images',
-      // 空手
-      '(empty hands:1.4)', '(open palms:1.3)', 'holding nothing in either hand',
-      'bare hands with nothing in them, no props, no weapon, no handheld item',
-      // 三栏一致性
-      'same face in all three panels',
-      'same hairstyle in all three panels',
-      'same outfit in all three panels',
-      'same body proportions in all three panels',
-      '(same silhouette in all three panels:1.4)',
-      'identical scale and identical height lines across all three panels',
-      'head to feet with no cropping, both feet visible in every panel',
-      'orthographic view, no perspective distortion',
-      'flat even studio lighting, no cast shadows',
-      '(no text:1.5)', 'no labels', 'no captions', 'no borders', 'no watermark',
-    ].join(', '),
-    negative: '(multiple characters:1.4), different faces, different outfits, '
-      + '(cropped:1.3), out of frame, text, watermark, speech bubble, label, '
-      // 画风漂移
-      + '(different art style:1.4), (restyle:1.3), (realistic:1.3), (photorealistic:1.3), '
-      + '(3d render:1.3), cgi, thick painting, oil painting, sketch, monochrome, '
-      // 身材漂移
-      + '(slimmer body:1.4), (longer legs:1.4), (bigger head:1.3), (smaller head:1.3), '
-      + '(changed body proportions:1.4), (taller:1.3), (shorter:1.3), '
-      // 凭空增加的零件
-      + '(tail:1.5), (animal tail:1.5), (cat tail:1.5), (fox tail:1.5), (fluffy tail:1.4), '
-      + '(extra tail:1.4), (animal ears:1.4), (cat ears:1.4), (fox ears:1.4), (horns:1.3), '
-      + '(wings:1.3), (halo:1.2), (extra arms:1.4), (extra legs:1.4), (third arm:1.4), '
-      + '(extra limb:1.4), (extra finger:1.3), (extra head:1.3), '
-      + '(new accessory:1.3), (added ornament:1.3), '
-      // 手持物
-      + '(weapon:1.4), (sword:1.4), (gun:1.4), (staff:1.4), (wand:1.4), (shield:1.4), '
-      + '(holding an item:1.4), (holding a weapon:1.4), (prop in hand:1.4), '
-      + 'umbrella, bag, book, phone, accessory in hand',
-    aspect: '16:9',
-  };
-}
-
-// 白底头部三视图：只画头部（含头发），不含脖子以下，锁定脸与发型。
-// 输入不是用户截图，而是上一步生成的白底三视图 —— 那张图已经把画风、脸和发型
-// 收敛过一遍，比游戏截图干净，从这里裁头重画，头部三视图的画风才跟三视图对得上。
-// 所以提示词要写成「图1 是三栏全身三视图，只取每栏的头部放大重画」，而不是「参考多角度照片」。
-export function buildHeadSheetPrompt() {
-  return {
-    positive: [
-      'image 1 is a full body character turnaround sheet with three panels (front, left profile, back) '
-        + 'of ONE single character, it is the only source of truth',
-      '(take ONLY the head and hair from image 1, keep them identical:1.5)',
-      '(enlarge the head of each panel into its own bust panel, do not redraw the face:1.4)',
-      'head and hair turnaround reference sheet',
-      'three equal bust panels side by side on a pure white background',
-      '[PANEL 1] the head of panel 1 of image 1, FRONT view, facing the camera',
-      '[PANEL 2] the head of panel 2 of image 1, LEFT PROFILE, exact 90-degree side view',
-      '[PANEL 3] the head of panel 3 of image 1, BACK view, the back of the hair fully visible',
-      '(strictly keep the original art style of image 1:1.5)',
-      '(same lineart weight, same coloring, same rendering technique as image 1:1.4)',
-      'do not restyle, do not repaint, do not change the art style',
-      'same face in all three panels',
-      'same hairline in all three panels',
-      'same hair color in all three panels',
-      'same hair volume and length in all three panels',
-      'same headwear in all three panels',
-      '(same head shape and same head size as image 1:1.4)',
-      'keep every hair strand, hair ornament and accessory that IS present in image 1',
-      'do not add any accessory or hair part that is not visible in image 1',
-      'identical head scale across all three panels',
-      'neutral expression, eyes level',
-      'nothing below the neck, no body, no shoulders, no arms, the whole head fully inside the frame',
-      'flat even studio lighting, no cast shadows',
-      '(no text:1.5)', 'no labels', 'no borders', 'no watermark',
-    ].join(', '),
-    negative: '(multiple characters:1.4), different faces, full body, torso, '
-      + '(neck:1.2), (shoulders:1.3), (arms:1.3), (hands:1.3), (legs:1.3), (feet:1.3), '
-      + '(cropped:1.3), (cropped head:1.3), out of frame, text, watermark, label, '
-      + '(different art style:1.4), (restyle:1.3), (realistic:1.3), (3d render:1.3), '
-      + 'thick painting, sketch, monochrome, '
-      + '(changed face:1.4), (changed hairstyle:1.4), (shortened hair:1.3), '
-      + '(extra hair ornament:1.3), (animal ears:1.4), (horns:1.3), '
-      + '(hat that is not in image 1:1.3), (extra head:1.3)',
-    aspect: '16:9',
-  };
-}
-
-// 换衣基准立绘：图1=白底三视图只提供体型比例，图2=头部三视图锁定脸与发型。
-// 头部描述（面部/妆容/发型/头部配饰）全部跳过，穿搭完全由非头部提示词决定。
-// 直接让模型从三视图取身材轮廓，不复制三视图里的衣服：衣服一律由提示词决定。
-// 身材必须与三视图 1:1，不得增删肢体（例如凭空加一条尾巴）。
-export function buildDressupBasePrompt(state) {
-  const collected = collect(state, tagSequence('基准立绘', state), { skipFields: HEAD_SKIP_FIELDS });
-  const style = styleOf(state);
-  const positiveParts = [
-    '(use image 1 ONLY as the body proportions and body shape reference:1.5)',
-    '(identical body proportions to image 1:1.5)',
-    '(take only the body build, height and proportions from image 1:1.4)',
-    '(same shoulder width, same waist, same hip width, same leg length as image 1:1.4)',
-    '(exactly two arms and two legs, no extra limbs:1.4)',
-    'the same number of limbs, ears and body parts as image 1',
-    'do not add any body part that is not visible in image 1',
-    '(do not copy the clothes or costume of image 1:1.4)',
-    '(use image 2 as the exact head: same face, same hair, same headwear:1.5)',
-    'single full figure, standing, entire body inside the frame',
-    '(empty hands:1.4)', '(open palms:1.3)', 'holding nothing in either hand',
-    'bare hands with nothing in them, no props, no weapon, no handheld item',
-    'render in full color with finished shading',
-    ...collected,
-    ...style.positive,
-    ...QUALITY_TAGS,
-    NANO_HAND_POSITIVE,
-  ];
-  return {
-    positive: positiveParts.join(', '),
-    negative: [...new Set([
-      NANO_HAND_NEGATIVE,
-      ...style.negative,
-      '(copying the outfit of image 1:1.4)', '(same clothes as image 1:1.4)', '(copying image 1 costume:1.3)',
-      '(changed body proportions:1.4)', '(slimmer body:1.3)', '(longer legs:1.3)',
-      '(tail:1.5), (animal tail:1.5), (extra tail:1.4), (animal ears:1.3), (extra limb:1.4), '
-        + '(extra arms:1.4), (extra legs:1.4), (added accessory:1.3)',
-      'multiple people', 'cropped', 'out of frame', 'text', 'watermark',
-      '(weapon:1.4)', '(sword:1.4)', '(gun:1.4)', '(staff:1.4)', '(wand:1.4)', '(shield:1.4)',
-      '(holding an item:1.4)', '(holding a weapon:1.4)', '(prop in hand:1.4)',
-      'umbrella, bag, book, phone, accessory in hand',
-    ])].join(', '),
-    aspect: state.baseAspect || '3:4',
-  };
-}
 
 const TUNE_AXES = ['pose', 'handPose', 'headDirection', 'gazes', 'eyeEmotions', 'mouthStates', 'effectSymbols', 'handheld'];
 const TUNE_SCENE = ['camera', 'background', 'lighting', 'visualEffects'];

@@ -45,7 +45,6 @@
       <section id="page-detail" class="page" data-page="detail" hidden></section>
       <section id="page-tune" class="page" data-page="tune" hidden></section>
       <section id="page-generate" class="page" data-page="generate" hidden></section>
-      <section id="page-dressup" class="page" data-page="dressup" hidden></section>
       <section id="page-watermark" class="page" data-page="watermark" hidden></section>
       <section id="page-wallpaper" class="page" data-page="wallpaper" hidden>
         <div class="wp-sheet">
@@ -175,7 +174,7 @@
           <div class="task-head">
             <div>
               <h2>任务队列</h2>
-              <p class="model-note">两个单线程池：一般生成 / 微调 / 换衣走「生成队列」，动态壁纸走「壁纸处理队列」。两池并行、各自内部串行，队列上限 64。任务在服务端执行，刷新或关页都不会中断。每栏按提交时间倒序，最新的在最上面，各自分页。</p>
+              <p class="model-note">两个单线程池：一般生成 / 微调走「生成队列」，动态壁纸走「壁纸处理队列」。两池并行、各自内部串行，队列上限 64。任务在服务端执行，刷新或关页都不会中断。每栏按提交时间倒序，最新的在最上面，各自分页。</p>
             </div>
             <button type="button" class="mini-btn" id="tasks-refresh">刷新</button>
           </div>

@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { defaultState } from '../src/state.js';
-import { NANO_HAND_NEGATIVE, NANO_HAND_POSITIVE, buildPrompt, buildTunePrompt, buildBodySheetPrompt, buildHeadSheetPrompt, buildDressupBasePrompt, poseClause, tuneCombinations } from '../src/prompts.js';
+import { NANO_HAND_NEGATIVE, NANO_HAND_POSITIVE, buildPrompt, buildTunePrompt, poseClause, tuneCombinations } from '../src/prompts.js';
 import { applyLinkage } from '../src/rules.js';
 
 const count = (text, term) => text.split(term).length - 1;
@@ -736,99 +736,6 @@ test('tune prompt uses the turnaround lock, one combo and the shared scene', () 
   assert.equal(book.positive.includes('holding book'), false);
   const heldShot = buildTunePrompt(applyLinkage(defaultState()), { pose: '站立', handheld: '书本' });
   assert.ok(heldShot.positive.includes('holding book'));
-});
-
-// 换衣页三套提示词：三栏声明、逐要素一致性、画风与身材 1:1、禁增零件、空手、无文字。
-test('body sheet prompt locks style, proportions, and forbids invented parts', () => {
-  const p = buildBodySheetPrompt();
-  assert.ok(p.positive.includes('[PANEL 1] full body FRONT view'));
-  assert.ok(p.positive.includes('[PANEL 2] full body LEFT PROFILE'));
-  assert.ok(p.positive.includes('[PANEL 3] full body BACK view'));
-  assert.ok(p.positive.includes('same face in all three panels'));
-  assert.ok(p.positive.includes('same hairstyle in all three panels'));
-  assert.ok(p.positive.includes('same outfit in all three panels'));
-  assert.ok(p.positive.includes('same body proportions in all three panels'));
-  assert.ok(p.positive.includes('orthographic view'));
-  assert.ok(p.positive.includes('(no text:1.5)'));
-  assert.ok(p.negative.includes('multiple characters'));
-  // 参考图是唯一事实来源。
-  assert.ok(p.positive.includes('they are the only source of truth'));
-  // 画风 1:1：不许重绘换风格。
-  assert.ok(p.positive.includes('(strictly keep the original art style of the reference images:1.5)'));
-  assert.ok(p.positive.includes('do not restyle'));
-  assert.ok(p.negative.includes('(different art style:1.4)'));
-  assert.ok(p.negative.includes('(restyle:1.3)'));
-  // 身材 1:1：身高、头身比、肩腰胯、四肢全部照抄，禁止变瘦拉长。
-  assert.ok(p.positive.includes('(identical body proportions to the reference images:1.5)'));
-  assert.ok(p.positive.includes('(same total height and same head-to-body ratio as the reference:1.4)'));
-  assert.ok(p.positive.includes('(same shoulder width, same waist, same hip width as the reference:1.4)'));
-  assert.ok(p.positive.includes('do not slim the body, do not lengthen the legs'));
-  assert.ok(p.negative.includes('(slimmer body:1.4)'));
-  assert.ok(p.negative.includes('(longer legs:1.4)'));
-  assert.ok(p.negative.includes('(changed body proportions:1.4)'));
-  // 禁止凭空增加零件：尾巴是本项目踩过的坑，必须显式封掉。
-  assert.ok(p.positive.includes('(exactly two arms and two legs, no extra limbs:1.4)'));
-  assert.ok(p.positive.includes('the same number of limbs, ears and body parts as the reference images'));
-  for (const tag of ['(tail:1.5)', '(animal tail:1.5)', '(extra tail:1.4)', '(animal ears:1.4)', '(extra arms:1.4)']) {
-    assert.ok(p.negative.includes(tag), `missing anti-invention negative ${tag}`);
-  }
-  // 参考图里本来就有的服饰与配饰必须保留，不能被一并删掉。
-  assert.ok(p.positive.includes('keep every garment, accessory and detail that IS present in the reference images'));
-  // 强制空手：三视图不得带入武器/手持物，否则会被当成身体的一部分。
-  assert.ok(p.positive.includes('(empty hands:1.4)'));
-  assert.ok(p.positive.includes('holding nothing in either hand'));
-  for (const tag of ['(weapon:1.4)', '(sword:1.4)', '(gun:1.4)', '(staff:1.4)', '(holding an item:1.4)']) {
-    assert.ok(p.negative.includes(tag), `missing empty-hands negative ${tag}`);
-  }
-});
-
-test('head sheet prompt locks the head, the style, and forbids anything below the neck', () => {
-  const p = buildHeadSheetPrompt();
-  assert.ok(p.positive.includes('[PANEL 1] the head of panel 1 of image 1, FRONT view, facing the camera'));
-  assert.ok(p.positive.includes('[PANEL 2] the head of panel 2 of image 1, LEFT PROFILE, exact 90-degree side view'));
-  assert.ok(p.positive.includes('[PANEL 3] the head of panel 3 of image 1, BACK view, the back of the hair fully visible'));
-  // 输入是上一步的白底三视图，不是用户截图：要写成「从图1 每栏取头放大重画」。
-  assert.ok(p.positive.includes('image 1 is a full body character turnaround sheet'));
-  assert.ok(p.positive.includes('(take ONLY the head and hair from image 1, keep them identical:1.5)'));
-  assert.ok(p.positive.includes('(enlarge the head of each panel into its own bust panel, do not redraw the face:1.4)'));
-  assert.ok(p.positive.includes('same face in all three panels'));
-  assert.ok(p.positive.includes('same hairline in all three panels'));
-  assert.ok(p.positive.includes('nothing below the neck'));
-  assert.ok(p.positive.includes('(strictly keep the original art style of image 1:1.5)'));
-  assert.ok(p.negative.includes('(different art style:1.4)'));
-  assert.ok(p.negative.includes('(changed face:1.4)'));
-  assert.ok(p.negative.includes('(changed hairstyle:1.4)'));
-  assert.ok(p.negative.includes('(animal ears:1.4)'));
-  assert.ok(p.negative.includes('full body'));
-  assert.ok(p.negative.includes('torso'));
-  // 之前用「参考图/截图」的说法，现在一律指向 image 1。
-  assert.equal(p.positive.includes('the reference images'), false);
-});
-
-test('dressup base prompt skips all head fields and reads the body from the turnaround', () => {
-  const state = defaultState();
-  const p = buildDressupBasePrompt(state);
-  assert.ok(p.positive.includes('(use image 1 ONLY as the body proportions and body shape reference:1.5)'));
-  assert.ok(p.positive.includes('(take only the body build, height and proportions from image 1:1.4)'));
-  assert.ok(p.positive.includes('(do not copy the clothes or costume of image 1:1.4)'));
-  assert.ok(p.positive.includes('(use image 2 as the exact head: same face, same hair, same headwear:1.5)'));
-  // 头部描述（面部/妆容/发型/头部配饰）一律不进入基准提示词。
-  for (const tag of ['oval face', 'twintails', 'black hair', 'light blush', 'natural lips']) {
-    assert.ok(!p.positive.includes(tag), `${tag} must be skipped`);
-  }
-  // 穿搭描述仍保留：默认下装「百褶裙」照常进。
-  assert.ok(p.positive.includes('pleated skirt'));
-  assert.ok(p.negative.includes('(copying the outfit of image 1:1.4)'));
-  // 身材必须与三视图 1:1，且不得增删肢体（例如凭空补一条尾巴）。
-  assert.ok(p.positive.includes('(identical body proportions to image 1:1.5)'));
-  assert.ok(p.positive.includes('(exactly two arms and two legs, no extra limbs:1.4)'));
-  assert.ok(p.negative.includes('(changed body proportions:1.4)'));
-  assert.ok(p.negative.includes('(tail:1.5)'));
-  assert.ok(p.negative.includes('(extra limb:1.4)'));
-  // 基准立绘同样强制空手，防止沿三视图把道具画回手里。
-  assert.ok(p.positive.includes('(empty hands:1.4)'));
-  assert.ok(p.negative.includes('(weapon:1.4)'));
-  assert.ok(p.negative.includes('(holding an item:1.4)'));
 });
 
 // 微调中文指令：姿势、手部动作、背景进入中文句；纯色背景不写进背景描述。

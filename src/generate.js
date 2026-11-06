@@ -175,15 +175,15 @@ function takeSeed(randomSeed, used) {
   return seed;
 }
 
-// 一次点击开始时拍下上传图、已锁定基准和换衣页中间产物。同一批里的每一张都用这份快照。
-function captureSnapshot(gallery, images, dressup = null) {
+// 一次点击开始时拍下上传图与已锁定基准。同一批里的每一张都用这份快照。
+function captureSnapshot(gallery, images) {
   const upload = images && images.reference ? images.reference : null;
   const live = gallery && typeof gallery.base === 'function' ? gallery.base() : null;
   const base = live && live.dataUrl
     ? { dataUrl: live.dataUrl, url: live.url || null, seed: live.seed, ...(live.state ? { state: live.state } : {}) }
     : null;
   const clothingPair = gallery && typeof gallery.clothingPair === 'function' ? gallery.clothingPair() : null;
-  return { upload, base, clothingPair, dressup };
+  return { upload, base, clothingPair };
 }
 
 // 锁定基准后，后续图用「基准当初保存的角色配置」写提示词，而不是当前表单：
@@ -200,30 +200,10 @@ function lockedCharacterState(snapshot, kind) {
 
 // 基准立绘永远用新种子；有上传图时只带那一张。其余图种优先用已锁定的基准。
 // 拆解图（服饰/手部）用选定的一组：先基准立绘，再配套三视图，种子用基准立绘的种子。
-// 换衣页三阶段：批量图 → 三视图/头部三视图；三视图+头部三视图 → 基准立绘；基准立绘+头部三视图 → 后续图。
 function planShot({ kind, snapshot, randomSeed, used, maxReferences = 10 }) {
   const upload = snapshot.upload;
   const locked = snapshot.base;
-  const dressup = snapshot.dressup;
-  const slice = (arr) => (Array.isArray(arr) ? arr.filter(Boolean).slice(0, maxReferences) : []);
 
-  // 白底三视图吃用户上传的多角度图；白底头部三视图改吃刚生成的白底三视图。
-  // 三视图已经把画风、脸和发型收敛过一遍，比游戏截图干净，头部三视图跟着它出才不会跑偏。
-  if (kind === '换衣三视图') {
-    const photos = slice(dressup && dressup.photos);
-    return { seed: takeSeed(randomSeed, used), referenceImages: photos, hasReference: photos.length > 0 };
-  }
-  if (kind === '换衣头部三视图') {
-    const bodySheet = dressup && dressup.bodySheet ? dressup.bodySheet.dataUrl : null;
-    const refs = bodySheet ? [bodySheet] : [];
-    return { seed: takeSeed(randomSeed, used), referenceImages: refs, hasReference: refs.length > 0 };
-  }
-  if (kind === '换衣基准立绘') {
-    const bodySheet = dressup && dressup.bodySheet ? dressup.bodySheet.dataUrl : null;
-    const headSheet = dressup && dressup.headSheet ? dressup.headSheet.dataUrl : null;
-    const refs = [bodySheet, headSheet].filter(Boolean);
-    return { seed: takeSeed(randomSeed, used), referenceImages: refs, hasReference: refs.length === 2 };
-  }
   if (isPairSheet(kind)) {
     const pair = snapshot.clothingPair;
     if (pair && pair.base && pair.base.dataUrl && pair.turnaround && pair.turnaround.dataUrl) {
@@ -234,16 +214,6 @@ function planShot({ kind, snapshot, randomSeed, used, maxReferences = 10 }) {
       };
     }
     return { seed: takeSeed(randomSeed, used), referenceImages: [], hasReference: false };
-  }
-  // 换衣页的后续图（三视图/表情/Q版/完整设定集）：用 [换衣基准立绘, 头部三视图] 锁头与身材。
-  if (dressup && dressup.base && dressup.base.dataUrl) {
-    const headDataUrl = dressup.headSheet ? dressup.headSheet.dataUrl : null;
-    const refs = [dressup.base.dataUrl, headDataUrl].filter(Boolean);
-    return {
-      seed: dressup.base.seed || takeSeed(randomSeed, used),
-      referenceImages: refs,
-      hasReference: true,
-    };
   }
   if (kind === '基准立绘') {
     return {
@@ -493,18 +463,13 @@ export async function buildKindPlan({
   snapshot,
   baseCount = 4,
   model = DEFAULT_IMAGE_MODEL,
-  dressup = null,
 }) {
-  const frozen = snapshot || captureSnapshot(gallery, images, dressup);
+  const frozen = snapshot || captureSnapshot(gallery, images);
   if (isPairSheet(kind)) {
     const pair = frozen.clothingPair;
     if (!pair || !pair.base || !pair.base.dataUrl || !pair.turnaround || !pair.turnaround.dataUrl) {
       throw new Error('请先在下载页的服饰基准里选定一组');
     }
-  }
-  // 头部三视图以白底三视图为唯一输入，没有它就等于无参考出图，直接拦掉。
-  if (kind === '换衣头部三视图' && !(frozen.dressup && frozen.dressup.bodySheet && frozen.dressup.bodySheet.dataUrl)) {
-    throw new Error('请先生成白底三视图，头部三视图以它为输入');
   }
   const requested = Number.isInteger(baseCount) ? baseCount : 4;
   const count = kind === '基准立绘' ? Math.min(4, Math.max(1, requested)) : 1;
@@ -541,20 +506,15 @@ export async function buildSuitePlan({
   suiteCount = 1,
   model = DEFAULT_IMAGE_MODEL,
   modelFor = null,
-  dressup = null,
 }) {
-  // 换衣页的完整设定集以「换衣基准立绘」为锁定的基准，而不是下载页手动选的那张。
-  const dressupBase = dressup && dressup.base && dressup.base.dataUrl
-    ? { dataUrl: dressup.base.dataUrl, url: dressup.base.url || null, seed: dressup.base.seed }
-    : null;
-  // 可选的按图种选模型：换衣页传 modelForGenerate，让设定集里的图与一般页用同一批模型。
+  // 可选的按图种选模型：调用方传 modelForGenerate，让设定集里的图与一般页用同一批模型。
   const modelOf = typeof modelFor === 'function'
     ? (kind) => modelFor(kind)
     : (kind) => (kind === 'Q版形象' ? CHIBI_IMAGE_MODEL : model);
-  const live = dressupBase || (gallery && typeof gallery.base === 'function' ? gallery.base() : null);
+  const live = gallery && typeof gallery.base === 'function' ? gallery.base() : null;
   if (!live || !live.dataUrl) throw new Error('请先选择合适的基准立绘');
   // 设定集里的服饰拆解图用本套刚生成的三视图，不用下载页手动选的那一组。
-  const snapshot = { ...captureSnapshot(gallery, images, dressup), clothingPair: null };
+  const snapshot = { ...captureSnapshot(gallery, images), clothingPair: null };
   const count = Math.min(4, Math.max(1, Number.isInteger(suiteCount) ? suiteCount : 1));
   const used = new Set();
   const persistBase = live.url ? { url: live.url, seed: live.seed } : null;
@@ -679,38 +639,6 @@ export async function buildTunePlan({
   });
 }
 
-// 换衣页「生成基准三视图」是两点串行：先白底三视图，再吃它出头部三视图。
-export async function buildDressupSheetsPlan({
-  state, gallery, images, dressup, fetcher = browserFetcher,
-  randomSeed = defaultSeed, model,
-}) {
-  const used = new Set();
-  const batchId = newBatchId();
-  const body = await buildStep({
-    kind: '换衣三视图', title: '白底三视图', state,
-    snapshot: { ...captureSnapshot(gallery, images, dressup) },
-    randomSeed, used, batchId, base: null, fetcher, model,
-  });
-  const head = await buildStep({
-    kind: '换衣头部三视图', title: '白底头部三视图', state,
-    snapshot: {
-      ...captureSnapshot(gallery, images, {
-        ...dressup,
-        bodySheet: { dataUrl: `${STEP_TOKEN_PREFIX}0` },
-      }),
-    },
-    randomSeed, used, batchId, base: null, fetcher, model,
-  });
-  head.wave = 1;
-  head.ref = [fromStep(0)];
-  return makePlan({
-    title: '生成基准三视图',
-    unit: '张',
-    steps: [body, head],
-    stamps: [{ indices: [0, 1], base: null, sort: null }],
-    tolerateErrors: true,
-  });
-}
 
 // ---------------- 本地执行包装（测试与离线兜底） ----------------
 

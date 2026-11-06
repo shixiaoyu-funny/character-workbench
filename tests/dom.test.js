@@ -26,7 +26,6 @@ const HTML = `<!DOCTYPE html>
       <button type="button" class="nav-item" data-route="detail">细节样式</button>
       <button type="button" class="nav-item" data-route="tune">角色定向微调</button>
       <button type="button" class="nav-item" data-route="generate">生成与处理（一般）</button>
-      <button type="button" class="nav-item" data-route="dressup">生成与处理（换衣）</button>
       <button type="button" class="nav-item" data-route="watermark">批量水印</button>
       <button type="button" class="nav-item" data-route="wallpaper">动态壁纸</button>
       <button type="button" class="nav-item" data-route="download">下载页</button>
@@ -36,7 +35,6 @@ const HTML = `<!DOCTYPE html>
       <section id="page-detail" class="page" data-page="detail" hidden></section>
       <section id="page-tune" class="page" data-page="tune" hidden></section>
       <section id="page-generate" class="page" data-page="generate" hidden></section>
-      <section id="page-dressup" class="page" data-page="dressup" hidden></section>
       <section id="download-view" class="page" data-page="download" hidden>
         <button type="button" id="download-back">返回生成页</button>
         <div class="download-tabs">
@@ -458,29 +456,6 @@ test('generate page renders an empty output strip and aspect controls', (t) => {
   for (const label of ['生成表情差分图', '生成Q版形象', '生成完整设定集']) {
     assert.equal(buttonByText(document, label).parentElement.querySelector('[data-field$="Aspect"]'), null, label);
   }
-});
-
-test('dressup page renders the upload zone and disables flow buttons until photos arrive', (t) => {
-  const { document } = setup(t);
-  const dressupNav = document.querySelector('#sidebar [data-route="dressup"]');
-  assert.ok(dressupNav, 'dressup nav present');
-  dressupNav.click();
-  const page = document.getElementById('page-dressup');
-  assert.equal(page.hidden, false, 'dressup page is visible after nav click');
-  assert.ok(page.querySelector('[data-upload-zone="dressup-file"]'), 'upload zone present');
-  const btn = (label) => [...page.querySelectorAll('button')].find((el) => el.textContent.trim() === label);
-  assert.equal(btn('生成基准三视图').disabled, true, 'sheets button disabled without photos');
-  assert.equal(btn('生成换衣基准立绘').disabled, true, 'base button disabled without silhouette');
-  assert.equal(btn('生成完整设定集').disabled, true, 'suite button disabled without base');
-  assert.equal(btn('生成三视图').disabled, true, 'downstream button disabled without base');
-  // 模型与一般页对齐：基准立绘千问，五种后续图沿用一般页映射。
-  const rowOf = (use) => [...page.querySelectorAll('.model-lock')]
-    .find((row) => row.textContent.includes(use));
-  assert.match(rowOf('换衣基准立绘').textContent, /qwen-image-3\.0/);
-  assert.equal(rowOf('换衣基准立绘').textContent.includes('gemini'), false);
-  assert.match(rowOf('白底三视图 / 头部三视图').textContent, /qwen-image-3\.0/);
-  assert.equal(rowOf('白底三视图 / 头部三视图').textContent.includes('gemini'), false);
-  assert.match(rowOf('Q版形象').textContent, /qwen-image-3\.0/);
 });
 
 test('generation style picker offers a single 二次元风格 and stays selected', (t) => {

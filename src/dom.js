@@ -4,8 +4,8 @@ import { PRESETS, WU_VALUES } from './catalog.js';
 import { CONFIG_KEY } from './state.js';
 import { FACE_BACKUP_KEY, unlockReference } from './face.js';
 import { dataUrlToBytes, imageFileName, makeFileKey, zipBatch, zipFiles } from './download.js';
-import { browserFetcher, browserStreamFetcher, buildDressupSheetsPlan, buildKindPlan, buildSuitePlan, buildTunePlan, executePlanLocally, generateKind, generateSuite, generateTune, isPairSheet, isStopped, planToPayload, stepLabel } from './generate.js';
-import { BASE_IMAGE_MODEL, CHIBI_IMAGE_MODEL, SUITE_IMAGE_MODEL, TUNE_IMAGE_MODEL, DRESSUP_IMAGE_MODEL, imageModelById, modelForGenerate, modelForDressup } from './imageModels.js';
+import { browserFetcher, browserStreamFetcher, buildKindPlan, buildSuitePlan, buildTunePlan, executePlanLocally, generateKind, generateSuite, generateTune, isPairSheet, isStopped, planToPayload, stepLabel } from './generate.js';
+import { BASE_IMAGE_MODEL, CHIBI_IMAGE_MODEL, SUITE_IMAGE_MODEL, TUNE_IMAGE_MODEL, imageModelById, modelForGenerate } from './imageModels.js';
 import { BED_POSES, tuneCombinations } from './prompts.js';
 import { loadPersisted } from './gallery.js';
 import { nextTheme, resolveTheme } from './theme.js';
@@ -2866,13 +2866,12 @@ async function downloadZip(doc, batch) {
   saveFile(doc, zipped.filename, bytesToDataUrl(zipped.bytes));
 }
 
-const ROUTES = ['base', 'detail', 'tune', 'generate', 'dressup', 'watermark', 'wallpaper', 'download', 'tasks'];
+const ROUTES = ['base', 'detail', 'tune', 'generate', 'watermark', 'wallpaper', 'download', 'tasks'];
 const PAGE_BY_ROUTE = {
   base: '#page-base',
   detail: '#page-detail',
   tune: '#page-tune',
   generate: '#page-generate',
-  dressup: '#page-dressup',
   watermark: '#page-watermark',
   wallpaper: '#page-wallpaper',
   download: '#download-view',
@@ -3287,59 +3286,6 @@ function renderTune(tune, warningList, extras) {
   </div>`;
 }
 
-// ---------------- 换衣页 ----------------
-
-// 客户端等比压缩到长边 maxEdge：多张原图 base64 会把请求体撑爆，上传后先压一遍。
-function resizeImageToMax(doc, dataUrl, maxEdge = 1024) {
-  return new Promise((resolve) => {
-    const view = doc.defaultView;
-    if (!view || typeof view.Image !== 'function') { resolve(dataUrl); return; }
-    const img = new view.Image();
-    img.onload = () => {
-      const w = img.naturalWidth || img.width || 1;
-      const h = img.naturalHeight || img.height || 1;
-      const long = Math.max(w, h);
-      if (!maxEdge || long <= maxEdge) { resolve(dataUrl); return; }
-      const scale = maxEdge / long;
-      const cw = Math.max(2, Math.round(w * scale));
-      const ch = Math.max(2, Math.round(h * scale));
-      const canvas = doc.createElement('canvas');
-      canvas.width = cw;
-      canvas.height = ch;
-      const ctx = canvas.getContext && canvas.getContext('2d');
-      if (!ctx) { resolve(dataUrl); return; }
-      try {
-        ctx.drawImage(img, 0, 0, cw, ch);
-        resolve(canvas.toDataURL('image/png'));
-      } catch {
-        resolve(dataUrl);
-      }
-    };
-    img.onerror = () => resolve(dataUrl);
-    img.src = dataUrl;
-  });
-}
-
-async function onDressupFiles(doc, files) {
-  const mounted = mounts.get(doc);
-  if (!mounted) return;
-  const list = Array.from(files || []).filter((f) => f && f.type && f.type.startsWith('image/'));
-  if (!list.length) {
-    showToast(doc, '没有可处理的图片');
-    return;
-  }
-  const next = [...(mounted.dressup.photos || [])];
-  for (const file of list) {
-    const dataUrl = await fileToDataUrl(doc, file);
-    if (!dataUrl || !dataUrl.startsWith('data:image/')) continue;
-    const resized = await resizeImageToMax(doc, dataUrl, 1024);
-    next.push(resized);
-  }
-  mounted.dressup.photos = next;
-  mounted.paint();
-  showToast(doc, `已上传 ${list.length} 张角色图`);
-}
-
 // ---------------- 任务队列执行 ----------------
 
 function sortGroupItems(group, items) {
@@ -3542,13 +3488,11 @@ function liveSignature(mounted, { onlyKind = '', excludeKind = '' } = {}) {
 // 三个页面的「实时区」：出图条 + 状态行。轮询只刷新这些节点。
 const LIVE_REGIONS = [
   { key: 'generate', output: 'output', status: 'status', onlyKind: '', excludeKind: '微调角色' },
-  { key: 'dressup', output: 'dressup-output', status: 'dressup-status', onlyKind: '', excludeKind: '微调角色' },
   { key: 'tune', output: 'tune-output', status: 'tune-status', onlyKind: '微调角色', excludeKind: '' },
 ];
 
 function statusTextOf(mounted, key) {
   if (key === 'tune') return mounted.tuneStatusText || '';
-  if (key === 'dressup') return (mounted.dressup && mounted.dressup.status) || '';
   return mounted.statusText || '';
 }
 
@@ -3725,213 +3669,6 @@ function startTunePolling(doc) {
   mounted.tunePollTimer = setTimer(() => { void tick(); }, mounted.pollMs || TASK_POLL_MS_LOCAL);
 }
 
-async function startDressupGenerate(doc, action) {
-  const mounted = mounts.get(doc);
-  if (!mounted || mounted.generating) return;
-  const dressup = mounted.dressup;
-  if (!dressup || !mounted.gallery || typeof mounted.gallery.addBatch !== 'function') return;
-
-  const controller = typeof AbortController === 'function' ? new AbortController() : null;
-  mounted.abort = controller;
-  mounted.stopped = false;
-  mounted.generating = true;
-  mounted.liveItems = [];
-  // 状态变化只刷新状态行与出图条；卡片结构（白底三视图 / 基准立绘）变了才整页重绘。
-  const report = (text) => { dressup.status = text; paintLiveRegions(doc); };
-  report('');
-
-  let total = 1;
-  const onProgress = ({ kind, count }) => {
-    total = Number.isInteger(count) && count > 0 ? count : 1;
-    report(`正在生成${kind}…`);
-  };
-  const onImage = (item, index) => {
-    const shown = Math.min(index + 1, total);
-    report(shown >= total ? '已生成' : `正在生成${item.kind}（${shown}/${total}）`);
-  };
-
-  const shared = {
-    state: mounted.store.getState(),
-    gallery: mounted.gallery,
-    images: mounted.images,
-    fetcher: mounted.fetcher || browserFetcher,
-    dressup,
-    signal: controller ? controller.signal : null,
-  };
-  const run = (plan) => runPlanAsTask(doc, plan, {
-    report, onProgress, onImage, signal: controller ? controller.signal : null,
-  });
-
-  try {
-    if (action === 'sheets') {
-      if (!dressup.photos || !dressup.photos.length) {
-        report('请先上传角色多角度图片');
-        return;
-      }
-      // 两阶段串行：先出白底三视图，再拿它当输入出白底头部三视图。
-      // 现在两步在服务端同一个任务里按顺序跑，第二步直接引用第一步的产物。
-      report('正在生成换衣三视图…');
-      const plan = await buildDressupSheetsPlan({ ...shared, model: modelForDressup('换衣三视图') });
-      total = plan.total;
-      const result = await run(plan);
-      const bodyItem = result.items[0];
-      if (!bodyItem || !bodyItem.dataUrl) throw new Error('白底三视图生成失败');
-      dressup.bodySheet = { dataUrl: bodyItem.dataUrl, url: bodyItem.url || null, seed: bodyItem.seed };
-      mounted.paint();
-      const headItem = result.items[1];
-      if (!headItem || !headItem.dataUrl) throw new Error('白底头部三视图生成失败');
-      dressup.headSheet = { dataUrl: headItem.dataUrl, url: headItem.url || null, seed: headItem.seed };
-      // 头部三视图卡片要换图，属于结构变化：整页重绘一次。
-      mounted.paint();
-      report('已生成白底三视图与白底头部三视图');
-    } else if (action === 'headsheet') {
-      // 单独重出头部三视图：白底三视图保留不动，只重画头部。
-      if (!dressup.bodySheet || !dressup.bodySheet.dataUrl) {
-        report('请先生成白底三视图');
-        return;
-      }
-      const plan = await buildKindPlan({
-        ...shared, kind: '换衣头部三视图', model: modelForDressup('换衣头部三视图'),
-      });
-      total = plan.total;
-      const result = await run(plan);
-      const headItem = result.items[0];
-      if (!headItem || !headItem.dataUrl) throw new Error('白底头部三视图生成失败');
-      dressup.headSheet = { dataUrl: headItem.dataUrl, url: headItem.url || null, seed: headItem.seed };
-      mounted.paint();
-      report('已重新生成白底头部三视图');
-    } else if (action === 'base') {
-      if (!dressup.bodySheet || !dressup.bodySheet.dataUrl || !dressup.headSheet || !dressup.headSheet.dataUrl) {
-        report('请先生成白底三视图与白底头部三视图');
-        return;
-      }
-      const plan = await buildKindPlan({
-        ...shared, kind: '换衣基准立绘', model: modelForDressup('换衣基准立绘'),
-      });
-      total = plan.total;
-      const result = await run(plan);
-      const baseItem = result.items[0];
-      if (!baseItem || !baseItem.dataUrl) throw new Error('换衣基准立绘生成失败');
-      dressup.base = { dataUrl: baseItem.dataUrl, url: baseItem.url || null, seed: baseItem.seed };
-      // 换衣基准立绘卡片要换图，属于结构变化：整页重绘一次。
-      mounted.paint();
-      report('已生成换衣基准立绘');
-    } else if (action === 'suite') {
-      if (!dressup.base || !dressup.base.dataUrl) {
-        report('请先生成换衣基准立绘');
-        return;
-      }
-      // 设定集里的每个图种都按一般页的映射选模型（Q 版千问、其余 Gemini）。
-      const plan = await buildSuitePlan({ ...shared, suiteCount: 1, modelFor: modelForGenerate });
-      total = plan.total;
-      const result = await run(plan);
-      report(result.skipped ? '已生成设定集，三视图失败，未生成服饰拆解图' : '已生成设定集');
-    } else {
-      const kind = action;
-      if (!dressup.base || !dressup.base.dataUrl) {
-        report('请先生成换衣基准立绘');
-        return;
-      }
-      if (isPairSheet(kind)) {
-        const pair = mounted.gallery.clothingPair && mounted.gallery.clothingPair();
-        if (!pair || !pair.base || !pair.turnaround) {
-          report('请先生成换衣三视图以设定服饰基准');
-          return;
-        }
-      }
-      const plan = await buildKindPlan({ ...shared, kind, model: modelForDressup(kind) });
-      total = plan.total;
-      const result = await run(plan);
-      // 换衣页生成三视图后，自动把 [换衣基准立绘, 换衣三视图] 设为服饰基准。
-      if (kind === '三视图') {
-        const item = result.items[0];
-        if (item && item.dataUrl && dressup.base && dressup.base.dataUrl) {
-          mounted.gallery.setClothingPair({ base: dressup.base, turnaround: item });
-        }
-      }
-      report(`已生成${kind}`);
-    }
-  } catch (error) {
-    if (isStopped(error)) report('已停止生成');
-    else report(error && error.message ? error.message : '生成失败');
-  } finally {
-    mounted.abort = null;
-    mounted.taskId = null;
-    mounted.liveItems = [];
-    setProgress(doc, mounted.stopped
-      ? { fraction: 0, active: false, total }
-      : { fraction: 1, active: false });
-    mounted.stopped = false;
-    mounted.generating = false;
-    mounted.paint();
-  }
-}
-
-function dressupCard(label, image, extraHtml = '') {
-  const download = image
-    ? `<button type="button" class="mini-btn" data-dressup-download="${esc(label)}">下载</button>`
-    : '';
-  return `<div class="dressup-card">
-    <div class="dressup-card-head"><span class="dressup-label">${esc(label)}</span>${download}</div>
-    ${image ? `<img class="dressup-img" src="${esc(image)}" alt="${esc(label)}" title="点击查看大图">` : '<span class="output-empty">尚未生成</span>'}
-    ${extraHtml}
-  </div>`;
-}
-
-function renderDressup(mounted) {
-  const dressup = mounted.dressup || {};
-  const sheetModel = imageModelById(DRESSUP_IMAGE_MODEL);
-  const baseModel = imageModelById(BASE_IMAGE_MODEL);
-  const suiteModel = imageModelById(SUITE_IMAGE_MODEL);
-  const chibiModel = imageModelById(CHIBI_IMAGE_MODEL);
-  const photos = (dressup.photos || []).map((src, i) => (
-    `<div class="dressup-photo"><img class="dressup-photo-img" src="${esc(src)}" alt="角色图${i + 1}" title="点击查看大图"><button type="button" class="delete-btn" data-dressup-remove-photo="${i}">删除</button></div>`
-  )).join('');
-  const canSheets = !mounted.generating && dressup.photos && dressup.photos.length > 0;
-  const hasBodySheet = Boolean(dressup.bodySheet && dressup.bodySheet.dataUrl);
-  // 头部三视图以白底三视图为输入，所以只要三视图在，就能单独重画头部而不动身材那张。
-  const canHeadSheet = !mounted.generating && hasBodySheet;
-  const canBase = !mounted.generating && hasBodySheet && dressup.headSheet && dressup.headSheet.dataUrl;
-  const canDown = !mounted.generating && dressup.base && dressup.base.dataUrl;
-  const downstreamButtons = ['三视图', '表情差分图', '服饰拆解图', '手部拆解图', 'Q版形象']
-    .map((kind) => `<div class="gen"><button type="button" class="gen-btn" data-dressup-generate="${esc(kind)}"${canDown ? '' : ' disabled'}>生成${esc(kind)}</button></div>`)
-    .join('');
-
-  return `<div class="dressup-sheet">
-    <h2 class="section-title">生成与处理（换衣）</h2>
-    <div class="model-lock"><p class="model-lock-line"><span class="model-lock-use">换衣基准立绘</span><span class="model-id">${esc(baseModel.id)}</span></p><p class="model-lock-detail">与一般页的基准立绘同一个模型</p><p class="model-price">${esc(baseModel.price)}</p></div>
-    <div class="model-lock"><p class="model-lock-line"><span class="model-lock-use">白底三视图 / 头部三视图</span><span class="model-id">${esc(sheetModel.id)}</span></p><p class="model-lock-detail">与换衣基准立绘同画风同体型，两张三视图都用千问（参考图上限 3 张，多传的按顺序取前 3 张）</p><p class="model-price">${esc(sheetModel.price)}</p></div>
-    <div class="model-lock"><p class="model-lock-line"><span class="model-lock-use">三视图 / 表情差分图 / 服饰拆解图 / 手部拆解图</span><span class="model-id">${esc(suiteModel.id)}</span></p><p class="model-lock-detail">与一般页同名按钮用同一个模型</p><p class="model-price">${esc(suiteModel.price)}</p></div>
-    <div class="model-lock"><p class="model-lock-line"><span class="model-lock-use">Q版形象</span><span class="model-id">${esc(chibiModel.id)}</span></p><p class="model-lock-detail">与一般页的 Q 版同一个模型</p><p class="model-price">${esc(chibiModel.price)}</p></div>
-    <p class="model-note">保留原角色的头部长相与身材，只换穿搭。流程：① 批量上传多角度角色图 → ② 生成白底三视图 → ③ 以白底三视图为输入生成白底头部三视图（只取三视图里的头与发，画风 1:1，不改脸不改发型；想单独重画头部点卡片上的按钮，不必重出三视图） → ④ 用「白底三视图（只取体型比例，不复制衣服）+ 头部三视图 + 细节样式里的非头部描述」生成换衣基准立绘 → ⑤ 后续三视图 / 表情差分图 / Q版 / 服饰拆解图 / 手部拆解图沿用同一套基准。头部描述（面部 / 妆容 / 发型 / 头部配饰）由头部三视图决定，请先在「细节样式」里把服饰与配饰选好。三视图与基准立绘均强制空手，不带任何武器或手持物。</p>
-    <div class="upload-drop wm-drop" data-upload-zone="dressup-file">
-      <label>批量上传角色多角度图片（可多选 / 拖入）<input type="file" id="dressup-file" accept="image/*" multiple></label>
-    </div>
-    ${photos ? `<div class="dressup-photos">${photos}</div>` : ''}
-    <div class="gen gen-full"><button type="button" class="gen-btn" data-dressup-generate="sheets"${canSheets ? '' : ' disabled'}>生成基准三视图</button></div>
-    <div class="dressup-grid">
-      ${dressupCard('白底三视图', dressup.bodySheet && dressup.bodySheet.dataUrl)}
-      ${dressupCard(
-        '白底头部三视图',
-        dressup.headSheet && dressup.headSheet.dataUrl,
-        hasBodySheet
-          ? `<button type="button" class="mini-btn" data-dressup-generate="headsheet"${canHeadSheet ? '' : ' disabled'}>重新生成头部三视图</button>`
-          : '',
-      )}
-    </div>
-    <div class="gen gen-full"><button type="button" class="gen-btn" data-dressup-generate="base"${canBase ? '' : ' disabled'}>生成换衣基准立绘</button></div>
-    ${dressupCard('换衣基准立绘', dressup.base && dressup.base.dataUrl)}
-    <div class="gen-grid">${downstreamButtons}</div>
-    <div class="gen gen-full"><button type="button" class="gen-btn" data-dressup-generate="suite"${canDown ? '' : ' disabled'}>生成完整设定集</button></div>
-    <div id="dressup-status" class="wp-status">${esc(dressup.status || '')}</div>
-    <div id="dressup-progress" class="progress" hidden>
-      <div class="progress-track"><div class="progress-fill"></div></div>
-    </div>
-    ${renderStop(mounted.generating)}
-    <div id="dressup-output" class="output-strip">${outputHtml(mounted.gallery, mounted.liveItems, { excludeKind: '微调角色' })}</div>
-  </div>`;
-}
-
 function render(doc, model) {
   const mounted = mounts.get(doc) || {};
   rememberOpenFines(doc, mounted);
@@ -3953,7 +3690,6 @@ function render(doc, model) {
   const detail = doc.getElementById('page-detail');
   const tune = doc.getElementById('page-tune');
   const generate = doc.getElementById('page-generate');
-  const dressup = doc.getElementById('page-dressup');
   if (base) base.innerHTML = renderLeft(model.left, ctx);
   if (detail) detail.innerHTML = renderCenter(model.center, {
     closedGroups: mounted.closedGroups || new Set(),
@@ -3983,9 +3719,6 @@ function render(doc, model) {
       baseCount: mounted.baseCount || 4,
       suiteCount: mounted.suiteCount || 1,
     });
-  }
-  if (dressup) {
-    dressup.innerHTML = renderDressup(mounted);
   }
   const status = doc.getElementById('status');
   if (status) status.textContent = mounted.statusText || '';
@@ -4027,7 +3760,6 @@ function applyProgress(doc, progress) {
   const mounted = mounts.get(doc);
   let id = 'progress';
   if (mounted && mounted.activeRoute === 'tune') id = 'tune-progress';
-  if (mounted && mounted.activeRoute === 'dressup') id = 'dressup-progress';
   const bar = doc.getElementById(id);
   if (!bar) return;
   if (!progress || !progress.active) {
@@ -4226,7 +3958,7 @@ function onClick(doc, event) {
     closeFullscreen(doc);
     return;
   }
-  const outputImg = event.target.closest('#output img, #tune-output img, .tune-preview, .dressup-img, .dressup-photo-img');
+  const outputImg = event.target.closest('#output img, #tune-output img, .tune-preview');
   if (outputImg) {
     openFullscreen(doc, outputImg.getAttribute('src'));
     return;
@@ -4602,30 +4334,6 @@ function onClick(doc, event) {
     void startGenerate(doc, generate.dataset.generate);
     return;
   }
-  const dressupGenerate = event.target.closest('[data-dressup-generate]');
-  if (dressupGenerate) {
-    if (dressupGenerate.disabled || mounted.generating) return;
-    void startDressupGenerate(doc, dressupGenerate.dataset.dressupGenerate);
-    return;
-  }
-  const dressupDownload = event.target.closest('[data-dressup-download]');
-  if (dressupDownload) {
-    const key = dressupDownload.dataset.dressupDownload;
-    const d = mounted.dressup;
-    let src = null;
-    if (key === '白底三视图') src = d.bodySheet && d.bodySheet.dataUrl;
-    else if (key === '白底头部三视图') src = d.headSheet && d.headSheet.dataUrl;
-    else if (key === '换衣基准立绘') src = d.base && d.base.dataUrl;
-    if (src) saveFile(doc, `换衣-${key}-${Date.now()}.png`, src);
-    return;
-  }
-  const dressupRemove = event.target.closest('[data-dressup-remove-photo]');
-  if (dressupRemove) {
-    const idx = Number(dressupRemove.dataset.dressupRemovePhoto);
-    mounted.dressup.photos = (mounted.dressup.photos || []).filter((_, i) => i !== idx);
-    mounted.paint();
-    return;
-  }
   const presetButton = event.target.closest('[data-preset]');
   if (presetButton) {
     const preset = PRESETS.find((item) => item.id === presetButton.dataset.preset);
@@ -4838,13 +4546,6 @@ function onChange(doc, event) {
     onHandSheetFile(doc, el);
     return;
   }
-  if (el.id === 'dressup-file') {
-    const files = Array.from(el.files || []);
-    // 清空选择：同一批文件再选一次也要能触发 change。
-    try { el.value = ''; } catch { /* 只读环境忽略 */ }
-    void onDressupFiles(doc, files);
-    return;
-  }
   if (el.id === 'watermark-file') {
     void handleWatermarkFiles(doc, Array.from(el.files || []));
     return;
@@ -5049,11 +4750,6 @@ function bindDragUpload(doc) {
       void onWallpaper2BatchFiles(doc, Array.from(files));
       return;
     }
-    // 换衣页：一次接收多张角色图，直接入队。
-    if (zoneId === 'dressup-file') {
-      void onDressupFiles(doc, Array.from(files));
-      return;
-    }
     const input = doc.getElementById(zoneId);
     const file = files[0];
     if (!input || !file) return;
@@ -5100,7 +4796,6 @@ export function mount(doc, { store, gallery, images = { reference: null }, fetch
     wallpaper2Raw: null, wallpaper2MasterStatus: '', wallpaperMaster: null,
     wallpaper2Batch: [], wallpaper2BatchBusy: false, wallpaper2BatchAbort: null, wallpaper2BatchStatus: '',
     wallpaperSourceName: '',
-    dressup: { photos: [], bodySheet: null, headSheet: null, base: null, status: '' },
     paint: () => {},
   };
   mounts.set(doc, record);

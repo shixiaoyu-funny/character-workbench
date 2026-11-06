@@ -8,11 +8,6 @@ export const IMAGE_MODEL_KEY = 'imageModel';
 export const DEFAULT_IMAGE_MODEL = 'qwen-image-3.0';
 export const BASE_IMAGE_MODEL = 'qwen-image-3.0';
 export const SUITE_IMAGE_MODEL = 'gemini-3-pro-image-c';
-// 换衣页那两张白底三视图（白底三视图 / 白底头部三视图）走千问：
-// Nano Banana Pro 出的身材比例、头身比和脸与换衣基准立绘对不上，「不像」比「不够稳」更伤。
-// 只影响换衣页这两张；一般页的三视图与设定集里的三视图仍用 SUITE_IMAGE_MODEL。
-// 千问最多吃 3 张参考图（见 QWEN_MODELS），多传的多角度图按上传顺序取前 3 张。
-export const DRESSUP_IMAGE_MODEL = 'qwen-image-3.0';
 // Q版形象改回千问：Gemini 的 Q 版头身比例和脸型偏"丑娃"，千问更贴近二次元手办感。
 export const CHIBI_IMAGE_MODEL = 'qwen-image-3.0';
 // 定向微调用 Nano Banana Pro（Gemini 3 Pro Image）。试过换千问，多姿态多机位的稳定性
@@ -22,14 +17,6 @@ export const TUNE_IMAGE_MODEL = 'gemini-3-pro-image-c';
 export function modelForGenerate(kind) {
   if (kind === '基准立绘' || kind === 'Q版形象') return BASE_IMAGE_MODEL;
   return SUITE_IMAGE_MODEL;
-}
-
-// 换衣页不另立一套模型：基准立绘与一般页一样走千问，五种后续图直接复用一般页的映射。
-// 只有两张白底三视图单独指定为 DRESSUP_IMAGE_MODEL（千问），因为它们直接决定换衣套图的体型。
-export function modelForDressup(kind) {
-  if (kind === '换衣三视图' || kind === '换衣头部三视图') return DRESSUP_IMAGE_MODEL;
-  if (kind === '换衣基准立绘') return BASE_IMAGE_MODEL;
-  return modelForGenerate(kind);
 }
 
 export const IMAGE_MODELS = [
