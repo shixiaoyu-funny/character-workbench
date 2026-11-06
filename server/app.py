@@ -3237,8 +3237,6 @@ def startup_lines(environ=None):
         lines.append("Gemini API Key 已获取")
     else:
         lines.append("未读取到 4S_API_KEY，选择 Gemini 时会提示未配置")
-    if (environ.get("DASHSCOPE_API_KEY") or "").strip():
-        lines.append("局部重绘走 wanx2.1-imageedit（华北2北京地域）")
     lines.append(f"服务已启动：http://{HOST}:{PORT}/")
     return lines
 
