@@ -1002,3 +1002,35 @@ test('hot chibi negates heavy rendering and a second character', () => {
   assert.ok(p.negative.includes('(3d render:1.5)'));
   assert.ok(p.negative.includes('(two characters:1.5)'));
 });
+
+// 出图背景色：白/黑/绿/蓝/自定义。绿是给抠图用的 chroma key 绿幕。
+test('a non-white sheet background rewrites every hardcoded white background', () => {
+  for (const kind of ['基准立绘', '三视图', 'Q版形象', '服饰拆解图']) {
+    const p = buildPrompt({ ...defaultState(), sheetBg: '黑' }, kind, { hasReference: true, styleCount: 0 });
+    assert.equal(p.positive.includes('white background'), false, kind);
+    assert.equal(p.positive.includes('纯白背景'), false, kind);
+    assert.ok(p.negative.includes('(white background:1.3)'), kind);
+  }
+  const base = buildPrompt({ ...defaultState(), sheetBg: '黑' }, '基准立绘', {});
+  assert.ok(base.positive.includes('纯黑背景'));
+  const sheet = buildPrompt({ ...defaultState(), sheetBg: '黑' }, '三视图', {});
+  assert.ok(sheet.positive.includes('black background'));
+});
+
+test('green background is written as a chroma key backdrop', () => {
+  const p = buildPrompt({ ...defaultState(), sheetBg: '绿' }, 'Q版形象', { hasReference: true, styleCount: 2 });
+  assert.ok(p.positive.includes('chroma key green background'));
+  assert.ok(p.positive.startsWith('背景色为纯绿。'));
+});
+
+test('a custom background colour is written as its own value', () => {
+  const p = buildPrompt({ ...defaultState(), sheetBg: '自定义', sheetBgCustom: '#ff8800' }, '基准立绘', {});
+  assert.ok(p.positive.startsWith('背景色为#ff8800。'));
+  assert.ok(p.positive.includes('#ff8800背景'));
+});
+
+test('white background leaves the prompts untouched', () => {
+  const p = buildPrompt(defaultState(), '三视图', {});
+  assert.ok(p.positive.includes('white background'));
+  assert.equal(p.negative.includes('(white background:1.3)'), false);
+});

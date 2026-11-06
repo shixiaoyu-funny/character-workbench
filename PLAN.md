@@ -147,6 +147,8 @@ ai_role_gen/
   heterochromiaLeft: '', heterochromiaRight: '',
   // 瞳色：表单直接钉死，不让模型从参考图猜；「跟随参考图」= 不写进提示词
   eyeColor: '跟随参考图', eyeColorCustom: '',
+  // 出图背景色：生成与处理页 / 热门Q版页共用，绿 = 抠图用的 chroma key 绿幕
+  sheetBg: '白', sheetBgCustom: '#ffffff',
   // 发型
   hairLength: '中长发', hairStyle: '双马尾（高/低）', ahoge: false, bangs: '空气刘海',
   hairColor: '黑', hairColorCustom: '', hairColorExtra: '无',
@@ -215,6 +217,7 @@ ai_role_gen/
 | 眼型 | 单选 | 杏眼/圆眼/上挑眼/下垂眼/半眯眼/死鱼眼/星星眼 |
 | 瞳孔 | 单选 | 圆形瞳/猫瞳竖瞳/无高光/异色瞳（左右各一个取色器） |
 | 瞳色 | 单选 + 取色器 | 跟随参考图/黑/棕/天蓝/深蓝/黑红/紫/粉/自定义；异色瞳时隐藏（改由左右两个取色器定色） |
+| 出图背景 | 单选 + 取色器 | 白/黑/绿/蓝/自定义（在「生成与处理」页与「热门Q版」页各有一个，读同一个字段）；绿 = chroma key 绿幕 |
 | 眉毛 | 单选 | 细平眉/粗平眉/柳叶眉/剑眉/八字眉/挑眉 |
 | 嘴巴 | 单选 | 樱桃小嘴/猫唇/薄唇/厚唇/嘴角上扬 |
 | 鼻子 | 单选 | 小翘鼻/直挺鼻 |
@@ -414,6 +417,13 @@ ai_role_gen/
 
 - 输入与服饰拆解图一致：下载页「服饰基准」选定的「基准立绘 + 配套三视图」，种子取基准立绘种子。
 - 正向固定：`(hand gestures sheet:1.5), (9 different hand poses:1.5), (3x3 grid:1.4), clear boundaries, (isolated hands:1.4), (floating hands, no body, no face, no human:1.5)` + 手部颜色规则 + 九种具体手势 `HAND_POSE_LIST`（`(v sign, open palm, fist, thumbs up, pointing, peace sign, holding a sword, waving, resting chin:1.2)`）。
+- **出图背景色**（`state.sheetBg`，2026-11-07 加）：白/黑/绿/蓝/自定义，生成与处理页与热门Q版页共用一个字段。
+  - 实现是**在 `buildPrompt` 外层统一改写**（`withSheetBackground`）：把所有图种里写死的 `white background` / `纯白背景` / `pure white background` 一次换掉，而不是每个图种各改一遍（否则必然漏掉拆解图与 Q 版）。
+  - 非白底时会在正向最前面加一句中文 `背景色为纯黑。`，并在负向补 `(white background:1.3)`。
+  - 选绿时英文写成 `chroma key green background`（抠图用），中文仍写「纯绿」。
+  - 自定义色直接写十六进制（`#ff8800背景`）。
+  - 白底是默认值，且**不改动任何既有提示词**（有测试守着）。
+  - 顺手清掉标签拼接留下的 `, ,` 空项。
 - **手部颜色以参考图为准**（`HAND_REFERENCE_RULE`）：`(hand color and hand covering identical to the reference:1.6), (keep the reference gloves if any:1.4), (do not recolor the hands:1.4)`。`handLookTags` 若表单选了手套/机械臂则带出配饰 tag，否则补一句肤色词。
 - 负向：禁人类/禁崩坏手指 + `(wrong hand color:1.5), (recolored hands…:1.4), (invented gloves, gloves removed from a gloved character:1.4)`。
 

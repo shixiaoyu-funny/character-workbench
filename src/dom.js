@@ -257,6 +257,15 @@ function renderRight(right, warningList, extras) {
   };
   const modelHtml = renderModelLock();
   const styleHtml = renderStyleSelector(right.style || []);
+  // 出图背景：白/黑/绿/蓝 + 自定义。绿是给抠图用的 chroma key 绿幕。
+  const bgPick = extras.sheetBg || '白';
+  const bgCustom = extras.sheetBgCustom || '#ffffff';
+  const bgHtml = `<div class="sheet-bg">
+    <span class="sheet-bg-label">出图背景</span>
+    ${['白', '黑', '绿', '蓝'].map((value) => `<button type="button" class="sheet-bg-btn${bgPick === value ? ' active' : ''}" data-sheet-bg="${value}">${value}</button>`).join('')}
+    <button type="button" class="sheet-bg-btn${bgPick === '自定义' ? ' active' : ''}" data-sheet-bg="自定义">自定义</button>
+    <input type="color" class="sheet-bg-color" data-sheet-bg-custom value="${esc(bgCustom)}" aria-label="自定义背景色">
+  </div>`;
   // 上传参考图入口已删除，锁脸由下载页选定基准立绘驱动；这里只负责提示当前处于锁脸态。
   const reference = right.reference || {};
   const lockHtml = reference.locked && reference.message
@@ -271,7 +280,7 @@ function renderRight(right, warningList, extras) {
   )).join('');
   return `<div class="right-panel">
     <div id="warnings">${warningHtml}</div>
-    <div class="gen-stack">${lockHtml}${modelHtml}${styleHtml}${baseHtml}<div class="gen-grid">${typesHtml}</div>${suiteHtml}</div>
+    <div class="gen-stack">${lockHtml}${modelHtml}${styleHtml}${bgHtml}${baseHtml}<div class="gen-grid">${typesHtml}</div>${suiteHtml}</div>
     <div id="status"></div>
     <div id="progress" class="progress" hidden>
       <div class="progress-track"><div class="progress-fill"></div></div>
@@ -3723,21 +3732,30 @@ function paintHotPage(doc) {
   if (count) count.value = String(hot.count || 1);
   const eye = doc.getElementById('hotchibi-eye');
   if (eye) eye.value = hot.eyeColor || '跟随参考图';
+  const bgSelect = doc.getElementById('hotchibi-bg');
+  if (bgSelect) {
+    const live = mounted.store ? mounted.store.getState() : {};
+    bgSelect.value = live.sheetBg || '白';
+  }
   const btn = doc.getElementById('hotchibi-generate');
   if (btn) btn.disabled = !hotReady(hot) || Boolean(mounted.generating);
 }
 
 // 瞳色选项直接来自 catalog，避免这里再抄一份颜色清单。
-function fillHotEyeOptions(doc) {
-  const select = doc.getElementById('hotchibi-eye');
-  if (!select || select.dataset.filled === '1') return;
-  for (const opt of OPTIONS.eyeColor || []) {
-    const node = doc.createElement('option');
-    node.value = opt.value;
-    node.textContent = opt.value;
-    select.appendChild(node);
-  }
-  select.dataset.filled = '1';
+function fillHotSelects(doc) {
+  const fill = (id, options) => {
+    const select = doc.getElementById(id);
+    if (!select || select.dataset.filled === '1') return;
+    for (const opt of options || []) {
+      const node = doc.createElement('option');
+      node.value = opt.value;
+      node.textContent = opt.value;
+      select.appendChild(node);
+    }
+    select.dataset.filled = '1';
+  };
+  fill('hotchibi-eye', OPTIONS.eyeColor);
+  fill('hotchibi-bg', OPTIONS.sheetBg);
 }
 
 async function onHotFile(doc, file) {
@@ -3761,7 +3779,13 @@ async function startHotChibi(doc) {
   report('正在生成热门Q版…');
   paintHotPage(doc);
   // 该页不读工作台的设定表单：身份全部来自上传的正比图，这里只借 state 传风格与瞳色。
-  const state = { ...defaultState(), eyeColor: hot.eyeColor || '跟随参考图' };
+  const live = mounted.store.getState();
+  const state = {
+    ...defaultState(),
+    eyeColor: hot.eyeColor || '跟随参考图',
+    sheetBg: live.sheetBg,
+    sheetBgCustom: live.sheetBgCustom,
+  };
   try {
     const plan = await buildKindPlan({
       kind: '热门Q版',
@@ -3835,6 +3859,8 @@ function render(doc, model) {
       output: outputHtml(mounted.gallery, mounted.liveItems, { excludeKind: '微调角色' }),
       baseCount: mounted.baseCount || 4,
       suiteCount: mounted.suiteCount || 1,
+      sheetBg: state.sheetBg,
+      sheetBgCustom: state.sheetBgCustom,
     });
   }
   const status = doc.getElementById('status');
@@ -3849,7 +3875,7 @@ function render(doc, model) {
   resetLiveSigs(mounted);
   applyProgress(doc, mounted.progress);
   // 热门Q版页是静态骨架 + 局部同步：这里把预览图/张数/瞳色/按钮门禁对齐一次。
-  fillHotEyeOptions(doc);
+  fillHotSelects(doc);
   paintHotPage(doc);
 }
 
@@ -4454,15 +4480,11 @@ function onClick(doc, event) {
     void startGenerate(doc, generate.dataset.generate);
     return;
   }
-  if (mounted.hot) {
-    if (event.target.id === 'hotchibi-count') {
-      mounted.hot.count = Math.min(4, Math.max(1, Number(event.target.value) || 1));
-      return;
-    }
-    if (event.target.id === 'hotchibi-eye') {
-      mounted.hot.eyeColor = event.target.value || '跟随参考图';
-      return;
-    }
+  const sheetBgBtn = event.target.closest('[data-sheet-bg]');
+  if (sheetBgBtn) {
+    const live = store.getState();
+    store.replace({ ...live, sheetBg: sheetBgBtn.dataset.sheetBg });
+    return;
   }
   if (event.target.closest('#hotchibi-generate')) {
     const btn = event.target.closest('#hotchibi-generate');
@@ -4664,6 +4686,21 @@ function onChange(doc, event) {
   const el = event.target;
   if (!mounted || !el?.dataset) return;
   const { store } = mounted;
+  // 下拉走 change，不走 click：放在 onChange 里、且在 mounted 初始化之后才会真的生效。
+  if (mounted.hot) {
+    if (el.id === 'hotchibi-count') {
+      mounted.hot.count = Math.min(4, Math.max(1, Number(el.value) || 1));
+      return;
+    }
+    if (el.id === 'hotchibi-eye') {
+      mounted.hot.eyeColor = el.value || '跟随参考图';
+      return;
+    }
+    if (el.id === 'hotchibi-bg') {
+      store.replace({ ...store.getState(), sheetBg: el.value || '白' });
+      return;
+    }
+  }
   if (el.dataset.downloadFilter) {
     const picked = el.checked ? el.dataset.downloadFilter : '';
     mounted.downloadFilter = picked === 'tune' || picked === 'suite' ? picked : '';
@@ -4680,6 +4717,12 @@ function onChange(doc, event) {
   }
   if (el.id === 'handsheet-file') {
     onHandSheetFile(doc, el);
+    return;
+  }
+  if (el.dataset && el.dataset.sheetBgCustom !== undefined) {
+    const live = store.getState();
+    const value = String(el.value || '').toLowerCase();
+    if (/^#[0-9a-f]{6}$/.test(value)) store.replace({ ...live, sheetBg: '自定义', sheetBgCustom: value });
     return;
   }
   if (el.id === 'hotchibi-file-a') {

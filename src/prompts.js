@@ -542,7 +542,47 @@ function tagSequence(kind, state) {
 
 // 单风格下不再需要写实风的 2.5d 放大补丁，直接删除。
 
-export function buildPrompt(state, kind, { hasReference = false, styleCount = 0, charCount = 0 } = {}) {
+// ---------------- 出图背景色 ----------------
+// 生成与处理页 / 热门Q版页共用的技术设置：只换底色，不参与角色描述。
+// 选绿 = chroma key 绿幕（抠图用）。所有写死「白底」的地方都在这里统一替换，
+// 免得每个图种各改一遍、还漏掉拆解图与 Q 版。
+const SHEET_BG_WORDS = { 白: 'white', 黑: 'black', 绿: 'chroma key green', 蓝: 'blue' };
+const SHEET_BG_ZH = { 白: '纯白', 黑: '纯黑', 绿: '纯绿', 蓝: '纯蓝' };
+
+function sheetBackgroundOf(state) {
+  const pick = state && state.sheetBg ? state.sheetBg : '白';
+  if (pick === '自定义') {
+    const hex = String((state && state.sheetBgCustom) || '').trim();
+    const named = isHexColor(hex) ? colorNameOf(state, hex) : '';
+    return { word: named || 'white', zh: hex || '纯白', isWhite: !named || named === 'white' };
+  }
+  const word = SHEET_BG_WORDS[pick] || 'white';
+  return { word, zh: SHEET_BG_ZH[pick] || '纯白', isWhite: word === 'white' };
+}
+
+// 把各图种里写死的白底换成用户选的底色；换过的底色不给白底留余地。
+function withSheetBackground(built, state) {
+  const bg = sheetBackgroundOf(state);
+  // 标签拼接偶尔会留下空项（", ,"），所有图种一起清掉。
+  const tidy = (text) => String(text || '').replace(/(,\s*){2,}/g, ', ').replace(/^,\s*/, '');
+  if (bg.isWhite) return { ...built, positive: tidy(built.positive), negative: tidy(built.negative) };
+  const positive = built.positive
+    .replace(/pure white background/g, `pure ${bg.word} background`)
+    .replace(/white background/g, `${bg.word} background`)
+    .replace(/纯白背景/g, `${bg.zh}背景`);
+  const head = `背景色为${bg.zh}。`;
+  const negative = [
+    '(white background:1.3)',
+    built.negative,
+  ].filter(Boolean).join(', ');
+  return { ...built, positive: tidy(`${head}${positive}`), negative: tidy(negative) };
+}
+
+export function buildPrompt(state, kind, opts = {}) {
+  return withSheetBackground(buildPromptCore(state, kind, opts), state);
+}
+
+function buildPromptCore(state, kind, { hasReference = false, styleCount = 0, charCount = 0 } = {}) {
   if (!KINDS.includes(kind)) {
     throw new Error(`未知图种: ${kind}`);
   }

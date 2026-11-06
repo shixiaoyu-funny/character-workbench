@@ -12,6 +12,8 @@ const DEFAULT_STATE = {
   // 瞳色：表单直接钉死，不再让模型从参考图里去猜。
   // 「跟随参考图」表示不写进提示词（锁脸时的默认行为，不给模型添矛盾）。
   eyeColor: '跟随参考图', eyeColorCustom: '',
+  // 出图背景色：生成与处理页 / 热门Q版页共用；选绿就是给抠图用的 chroma key 绿幕。
+  sheetBg: '白', sheetBgCustom: '#ffffff',
   hairLength: '中长发', hairStyle: '双马尾（高/低）', ahoge: false, bangs: '空气刘海',
   hairColor: '黑', hairColorCustom: '', hairColorExtra: '无',
   streakColor: '', gradientRootColor: '', gradientTipColor: '',
@@ -72,7 +74,8 @@ export function defaultState() {
 const TUNE_MULTI = ['pose', 'handPose', 'headDirection'];
 
 // 后加字段：旧存档缺这些键时回退默认值，而不是判定整份配置损坏。
-const LATE_FIELDS = new Set(['style', 'tuneAspect', 'tuneGender', 'eyeColor', 'eyeColorCustom']);
+const LATE_FIELDS = new Set(['style', 'tuneAspect', 'tuneGender', 'eyeColor', 'eyeColorCustom',
+  'sheetBg', 'sheetBgCustom']);
 
 function migrateTuneState(value) {
   const next = { ...value };

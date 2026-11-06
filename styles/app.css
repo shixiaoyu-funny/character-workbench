@@ -2563,3 +2563,26 @@ option, optgroup { background: var(--panel); color: var(--text); }
 .hot-rules li { font-size: 13px; line-height: 1.6; }
 .hot-rules li.ok { color: var(--text); }
 .hot-rules li.no { color: #c0392b; }
+
+/* 出图背景色选择（生成与处理页 / 热门Q版页共用） */
+.sheet-bg { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
+.sheet-bg-label { font-size: 13px; font-weight: 700; color: var(--text); }
+.sheet-bg-btn {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--control-border);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.sheet-bg-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.sheet-bg-color {
+  width: 34px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  cursor: pointer;
+}

@@ -313,7 +313,7 @@ test('after linkage every single-select default value is wu or visible', () => {
     'pose', 'handPose', 'headDirection']);
   const skipped = new Set(['crossdressing', 'ahoge', 'backgroundColor', 'colorNames', 'style',
     'hairColorCustom', 'streakColor', 'gradientRootColor', 'gradientTipColor',
-    'eyeShadowColor', 'lipColor', 'eyeColorCustom', 'heterochromiaLeft', 'heterochromiaRight',
+    'eyeShadowColor', 'lipColor', 'eyeColorCustom', 'sheetBgCustom', 'heterochromiaLeft', 'heterochromiaRight',
     'tuneGender', 'tuneShoes', 'tuneSocks', 'top', 'bottom', 'outerwear', 'onePiece', 'shoes', 'socks']);
   for (const [field, value] of Object.entries(linked)) {
     if (multi.has(field) || skipped.has(field) || field.endsWith('Aspect')) continue;

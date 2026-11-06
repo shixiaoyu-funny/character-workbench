@@ -55,7 +55,7 @@ test('sanitizeState rejects non-objects', () => {
 });
 
 test('sanitizeState rejects a missing default key', () => {
-  const keys = Object.keys(defaultState()).filter((key) => key !== 'style' && key !== 'tuneAspect' && key !== 'tuneGender' && key !== 'tuneShoes' && key !== 'tuneSocks' && key !== 'eyeColor' && key !== 'eyeColorCustom');
+  const keys = Object.keys(defaultState()).filter((key) => key !== 'style' && key !== 'tuneAspect' && key !== 'tuneGender' && key !== 'tuneShoes' && key !== 'tuneSocks' && key !== 'eyeColor' && key !== 'eyeColorCustom' && key !== 'sheetBg' && key !== 'sheetBgCustom');
   assert.ok(keys.length > 0);
   for (const key of keys) {
     const broken = { ...defaultState() };
@@ -321,4 +321,14 @@ test('eye colour backfills from an old save instead of voiding the whole config'
   assert.ok(out);
   assert.equal(out.eyeColor, '跟随参考图');
   assert.equal(out.eyeColorCustom, '');
+});
+
+test('sheet background backfills from an old save', () => {
+  const old = { ...defaultState() };
+  delete old.sheetBg;
+  delete old.sheetBgCustom;
+  const out = sanitizeState(old);
+  assert.ok(out);
+  assert.equal(out.sheetBg, '白');
+  assert.equal(out.sheetBgCustom, '#ffffff');
 });
