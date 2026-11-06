@@ -34,10 +34,10 @@ test('defaultState returns independent deep copies', () => {
   assert.notEqual(a, b);
   a.gender = '男';
   a.gazes.push('污染');
-  a.hairColorExtra.push('红');
+  a.hairColorExtra = '挑染';
   assert.equal(b.gender, '女');
   assert.deepEqual(b.gazes, ['看着镜头']);
-  assert.deepEqual(b.hairColorExtra, []);
+  assert.equal(b.hairColorExtra, '无');
 });
 
 test('sanitizeState accepts a complete valid object and returns a copy', () => {
@@ -55,7 +55,7 @@ test('sanitizeState rejects non-objects', () => {
 });
 
 test('sanitizeState rejects a missing default key', () => {
-  const keys = Object.keys(defaultState());
+  const keys = Object.keys(defaultState()).filter((key) => key !== 'style' && key !== 'tuneAspect' && key !== 'tuneGender' && key !== 'tuneShoes' && key !== 'tuneSocks');
   assert.ok(keys.length > 0);
   for (const key of keys) {
     const broken = { ...defaultState() };
@@ -64,12 +64,56 @@ test('sanitizeState rejects a missing default key', () => {
   }
 });
 
+test('sanitizeState backfills the later-added style field from old saves', () => {
+  const s = defaultState();
+  const old = { ...s };
+  delete old.style;
+  const out = sanitizeState(old);
+  assert.ok(out);
+  assert.equal(out.style, '二次元风格');
+  const posed = { ...s, pose: '站立', handPose: '自然下垂', headDirection: '正面平视' };
+  delete posed.tuneAspect;
+  delete posed.tuneGender;
+  delete posed.tuneShoes;
+  delete posed.tuneSocks;
+  const migrated = sanitizeState(posed);
+  assert.deepEqual(migrated.pose, ['站立']);
+  assert.deepEqual(migrated.handPose, ['自然下垂']);
+  assert.deepEqual(migrated.headDirection, ['正面平视']);
+  assert.equal(migrated.tuneAspect, '3:4');
+  assert.equal(migrated.tuneGender, '女');
+  assert.equal(migrated.tuneShoes, true);
+  assert.equal(migrated.tuneSocks, true);
+});
+
+test('sanitizeState migrates legacy style values to 二次元风格', () => {
+  for (const legacy of ['米哈游风', '写实风二次元']) {
+    const out = sanitizeState({ ...defaultState(), style: legacy });
+    assert.ok(out, `legacy ${legacy} must survive sanitization`);
+    assert.equal(out.style, '二次元风格');
+  }
+  const kept = sanitizeState({ ...defaultState(), style: '二次元风格' });
+  assert.equal(kept.style, '二次元风格');
+});
+
 test('sanitizeState rejects wrong types', () => {
   assert.equal(sanitizeState({ ...defaultState(), gender: [] }), null);
   assert.equal(sanitizeState({ ...defaultState(), gazes: '看着镜头' }), null);
   assert.equal(sanitizeState({ ...defaultState(), crossdressing: '否' }), null);
   assert.equal(sanitizeState({ ...defaultState(), backgroundColor: ['#ffffff'] }), null);
-  assert.equal(sanitizeState({ ...defaultState(), hairColorExtra: '挑染' }), null);
+  assert.equal(sanitizeState({ ...defaultState(), hairColorExtra: ['挑染'] }), null);
+  assert.equal(sanitizeState({ ...defaultState(), colorNames: ['#dbfff4'] }), null);
+  assert.equal(sanitizeState({ ...defaultState(), colorNames: 'pale mint green' }), null);
+});
+
+test('sanitizeState accepts and normalizes colorNames', () => {
+  const ok = sanitizeState({ ...defaultState(), colorNames: { '#DBFFF4': 'pale mint green' } });
+  assert.deepEqual(ok.colorNames, { '#dbfff4': 'pale mint green' });
+  // 非法键或值拒绝。
+  assert.equal(sanitizeState({ ...defaultState(), colorNames: { 'red': 'red' } }), null);
+  assert.equal(sanitizeState({ ...defaultState(), colorNames: { '#dbfff4': 3 } }), null);
+  assert.equal(sanitizeState({ ...defaultState(), colorNames: { '#dbfff4': 'data:image/x' } }), null);
+  assert.equal(sanitizeState({ ...defaultState(), colorNames: { '#dbfff4': 'x'.repeat(101) } }), null);
 });
 
 test('sanitizeState rejects forbidden keys', () => {

@@ -57,8 +57,18 @@ function dosDate(date) {
   return ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
 }
 
-export function singleName(index, kind) {
-  return `${pad(index)}-${kind}.png`;
+export function makeFileKey(time = Date.now()) {
+  const prefix = globalThis.crypto.randomUUID().slice(0, 6);
+  return `${prefix}-${stamp(time)}`;
+}
+
+export function fileStem(item, time = Date.now()) {
+  if (item && item.fileKey) return item.fileKey;
+  return makeFileKey(item && item.createdAt ? item.createdAt : time);
+}
+
+export function imageFileName(item, time) {
+  return `${fileStem(item, time)}.png`;
 }
 
 export function dataUrlToBytes(dataUrl) {
@@ -72,18 +82,6 @@ export function dataUrlToBytes(dataUrl) {
     return bytes;
   }
   return new TextEncoder().encode(decodeURIComponent(payload));
-}
-
-export function promptsText(batch) {
-  return batch.items.map((item, index) => [
-    `images/${singleName(index + 1, item.kind)}`,
-    `aspect: ${item.aspect}`,
-    `seed: ${item.seed}`,
-    'POSITIVE',
-    item.positive,
-    'NEGATIVE',
-    item.negative,
-  ].join('\n')).join('\n---\n');
 }
 
 function storedEntry(name, data, time, date, offset) {
@@ -131,18 +129,16 @@ function storedEntry(name, data, time, date, offset) {
   return { local, central };
 }
 
-export function zipBatch(batch) {
-  const when = new Date(batch.createdAt);
+function imageBytes(item) {
+  if (item && item.bytes) return item.bytes;
+  return dataUrlToBytes(item.dataUrl);
+}
+
+// 通用打包：files = [{ name, data: Uint8Array }]，返回 zip 字节与文件名。
+export function zipFiles(files, filename, createdAt = Date.now()) {
+  const when = new Date(createdAt);
   const time = dosTime(when);
   const date = dosDate(when);
-  const files = batch.items.map((item, index) => ({
-    name: `images/${singleName(index + 1, item.kind)}`,
-    data: dataUrlToBytes(item.dataUrl),
-  }));
-  files.push({
-    name: 'prompts.txt',
-    data: new TextEncoder().encode(promptsText(batch)),
-  });
   const locals = [];
   const centrals = [];
   let offset = 0;
@@ -163,8 +159,22 @@ export function zipBatch(batch) {
     ...u32(offset),
     ...u16(0),
   ]);
-  return {
-    filename: `角色设定-${stamp(batch.createdAt)}.zip`,
-    bytes: concatBytes([...locals, centralBytes, end]),
-  };
+  return { filename, bytes: concatBytes([...locals, centralBytes, end]) };
+}
+
+export function zipBatch(batch) {
+  const files = [];
+  if (batch.base && (batch.base.bytes || batch.base.dataUrl)) {
+    files.push({
+      name: `images/${imageFileName(batch.base, batch.createdAt)}`,
+      data: imageBytes(batch.base),
+    });
+  }
+  for (const item of batch.items) {
+    files.push({
+      name: `images/${fileStem(item, batch.createdAt)}.png`,
+      data: imageBytes(item),
+    });
+  }
+  return zipFiles(files, `角色设定-${stamp(batch.createdAt)}.zip`, batch.createdAt);
 }

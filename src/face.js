@@ -37,21 +37,29 @@ export function restoreFace(state, backup) {
 
 // 锁脸期间联动不得把清空的面部字段补回默认值：
 // 锁定（images.reference 非空）时在原联动之后再清一次面部字段。
+// store → 内存参考图容器（images）。参考图只放内存，不写 store，也不写 localStorage。
+// 锁/解锁时由这里直接维护 images.reference，调用方不必再手工清空。
+const IMAGES_BY_STORE = new WeakMap();
+
 export function createFaceStore({ images = { reference: null }, applyLinkage = (s) => s, ...rest }) {
-  return createStore({
+  const store = createStore({
     ...rest,
     applyLinkage: (state) => {
       const linked = applyLinkage(state);
       return images.reference ? stripFace(linked) : linked;
     },
   });
+  IMAGES_BY_STORE.set(store, images);
+  return store;
 }
 
 // 锁定：拒绝非 data:image/ 开头的字符串且不改状态。
-// 成功时备份原面部选项到 FACE_BACKUP_KEY（已有备份不覆盖，保留最早的一份），
-// 然后把状态里的面部字段清空。调用方需先把参考图写进 images.reference。
+// 成功时把参考图写进 images.reference，备份原面部选项到 FACE_BACKUP_KEY
+//（已有备份不覆盖，保留最早的一份），然后把状态里的面部字段清空。
 export function lockReference(store, storage, dataUrl) {
   if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return false;
+  const images = IMAGES_BY_STORE.get(store);
+  if (images) images.reference = dataUrl;
   if (storage.getItem(FACE_BACKUP_KEY) === null || storage.getItem(FACE_BACKUP_KEY) === undefined) {
     const backup = backupFace(store.getState());
     storage.setItem(FACE_BACKUP_KEY, JSON.stringify(backup));
@@ -60,10 +68,12 @@ export function lockReference(store, storage, dataUrl) {
   return true;
 }
 
-// 解锁：读备份写回状态，删除备份键。调用方需先清空 images.reference。
+// 解锁：先清空内存参考图（否则 applyLinkage 会再次清掉面部），再读备份写回状态并删除备份键。
 export function unlockReference(store, storage) {
   const raw = storage.getItem(FACE_BACKUP_KEY);
   if (raw === null || raw === undefined) return false;
+  const images = IMAGES_BY_STORE.get(store);
+  if (images) images.reference = null;
   let backup;
   try {
     backup = JSON.parse(raw);

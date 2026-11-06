@@ -4,6 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>角色工作台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: ['selector', '[data-theme="dark"]'],
+      theme: {
+        extend: {
+          colors: {
+            brand: { blue: '#3b82f6', pink: '#ec4899' }
+          }
+        }
+      }
+    };
+  </script>
   <link rel="stylesheet" href="/styles/app.css">
 </head>
 <body>
@@ -11,16 +24,195 @@
     <button type="button" id="theme-toggle">🌙</button>
     <button type="button" id="reset">重置</button>
   </div>
-  <div id="workbench" class="workbench">
-    <div id="col-left" class="col"></div>
-    <div id="col-center" class="col"></div>
-    <div id="col-right" class="col"></div>
+
+  <div class="app-shell">
+    <aside id="sidebar" class="sidebar">
+      <div class="brand">角色工作台</div>
+      <nav class="nav">
+        <button type="button" class="nav-item" data-route="base" aria-current="page">身份基底</button>
+        <button type="button" class="nav-item" data-route="detail" aria-current="false">细节样式</button>
+        <button type="button" class="nav-item" data-route="tune" aria-current="false">角色定向微调</button>
+        <button type="button" class="nav-item" data-route="generate" aria-current="false">生成与处理（一般）</button>
+        <button type="button" class="nav-item" data-route="watermark" aria-current="false">批量水印</button>
+        <button type="button" class="nav-item" data-route="wallpaper" aria-current="false">动态壁纸</button>
+        <button type="button" class="nav-item" data-route="tasks" aria-current="false">任务队列</button>
+        <button type="button" class="nav-item" data-route="download" aria-current="false">下载页</button>
+      </nav>
+    </aside>
+
+    <main id="workbench" class="workbench">
+      <section id="page-base" class="page" data-page="base"></section>
+      <section id="page-detail" class="page" data-page="detail" hidden></section>
+      <section id="page-tune" class="page" data-page="tune" hidden></section>
+      <section id="page-generate" class="page" data-page="generate" hidden></section>
+      <section id="page-dressup" class="page" data-page="dressup" hidden></section>
+      <section id="page-watermark" class="page" data-page="watermark" hidden></section>
+      <section id="page-wallpaper" class="page" data-page="wallpaper" hidden>
+        <div class="wp-sheet">
+          <div class="wp-head">
+            <h2>动态壁纸</h2>
+            <p class="model-note">一条流水线走完：立绘 → 万相待机循环原片 → 色彩锁定 / 补帧 60FPS / 4K 超分得到母版 → 四端裁剪 + 调色 → 逐端导出并自动下载。顺序是「先重处理、后剪辑」：补帧与超分都要吃干净、帧间隔均匀的画面，先裁剪再超分则等于把压缩瑕疵一起放大（先超分再裁剪是超采样降采样，清晰得多）。</p>
+          </div>
+
+          <div class="wp-step" data-wp-step="generate">
+            <div class="wp-panel-head">
+              <span class="wp-label">① 上传立绘 / 视频</span>
+              <span class="wp-ratio" id="wallpaper-step-generate">待上传</span>
+            </div>
+
+            <div class="upload-drop wm-drop" data-upload-zone="wallpaper2-source">
+              <label>上传立绘（1~N 张，多选 / 拖入）或直接传一段视频<input type="file" id="wallpaper2-source" accept="image/*,video/*" multiple></label>
+              <div class="wp2-source" id="wallpaper2-source-view" hidden>
+                <img id="wallpaper2-preview" alt="已上传的立绘">
+              </div>
+              <div id="wallpaper2-queue" class="wp2-batch" hidden></div>
+              <p class="model-note" id="wallpaper2-file-note">多张立绘会各跑一遍「万相待机循环 → 色彩锁定 → 补帧 60FPS → 4K 超分」，跑完自动下载；任务提交后本页立即刷新，进度去【任务队列】看。视频直接当母版，跳过全部重处理。</p>
+            </div>
+
+            <div class="wp-grid">
+              <div class="wp-panel">
+                <div class="wp-panel-head"><span class="wp-label">视频模型</span></div>
+                <div id="wallpaper2-models" class="wp-particles"></div>
+              </div>
+              <div class="wp-panel">
+                <div class="wp-panel-head"><span class="wp-label">循环时长</span></div>
+                <div id="wallpaper2-durations" class="wp-particles"></div>
+              </div>
+            </div>
+            <p class="model-note">要的是「一张会呼吸的静态插画」：脚几乎不动，力从脚底一路传到发梢，越到末端越柔越晚，整段只走完一个循环。时长已固定 6 秒（不再提供 4/8 秒：同样的位移被压缩后速度变快，就会从「柔」变成「抽搐」），保证每次的呼吸节奏与眨眼时机完全一致。嘴部全程锁死、与参考立绘一致，不做任何表情变化；整段只在三分之二处（约 4 秒）眨眼一次。一次只生成一版，6 秒视频按次计费。</p>
+
+            <div class="wm-actions-bar">
+              <button type="button" class="pack-btn" id="wallpaper2-submit">提交任务</button>
+              <span id="wallpaper2-status" class="wp-status"></span>
+            </div>
+          </div>
+
+          <div class="wp-step" data-wp-step="master">
+            <div class="wp-panel-head">
+              <span class="wp-label">② 重处理母版</span>
+              <span class="wp-ratio" id="wallpaper-step-master">等待原片</span>
+            </div>
+            <p class="model-note">原片出来后自动按「色彩锁定 → 补帧 60FPS → 4K 超分」走完，得到的 4K/60 母版才是剪辑与导出的底片。这一步只做一次，四端导出都从同一份母版裁剪，不必超分四次。</p>
+            <div class="wm-actions-bar">
+              <button type="button" class="pack-btn" id="wallpaper2-process" disabled>重新处理（色彩锁定 + 60FPS + 4K）</button>
+              <span id="wallpaper2-process-status" class="wp-status"></span>
+            </div>
+            <video id="wallpaper-master-video" class="wp-master-video" hidden autoplay muted loop playsinline controls></video>
+          </div>
+
+          <div class="wp-step" data-wp-step="edit">
+            <div class="wp-panel-head">
+              <span class="wp-label">③ 四端剪辑</span>
+              <span class="wp-ratio" id="wallpaper-step-edit">等待母版</span>
+            </div>
+            <p class="model-note">母版会自动成为下方画布的源。每个预览框可独立拖动调整裁剪焦点；需要四端一起动时点开「连接关系」，拖动主画布即可联动。调色只影响导出效果，不动母版本身。导出在浏览器里只做「裁剪 + 调色预览」，成片由本机后端 ffmpeg 用同一套调色公式（3D LUT + 空间滤镜）确定性渲染。</p>
+
+            <div class="wp-panel wp-editor-panel">
+              <div class="wp-panel-head">
+                <span class="wp-label">编辑画布</span>
+                <button type="button" id="wallpaper-link" class="wp-link-toggle" data-wp-link="0" title="启用后拖动主画布，四端预览联动；禁用后各端独立拖拽">连接关系：已禁用</button>
+              </div>
+              <canvas id="wp-canvas-editor" class="wp-canvas wp-canvas-editor"></canvas>
+            </div>
+
+            <div class="wp-grid">
+              <div class="wp-panel" data-wp-platform="pc">
+                <div class="wp-panel-head"><span class="wp-label">PC / Mac</span><span class="wp-ratio">16:9</span></div>
+                <canvas id="wp-canvas-pc" class="wp-canvas"></canvas>
+                <div class="wp-panel-foot"><span class="wp-dim">3840×2160</span><button type="button" class="wp-export" data-wp-export="pc">导出此端</button></div>
+              </div>
+              <div class="wp-panel" data-wp-platform="phone">
+                <div class="wp-panel-head"><span class="wp-label">手机</span><span class="wp-ratio">9:20</span></div>
+                <canvas id="wp-canvas-phone" class="wp-canvas"></canvas>
+                <div class="wp-panel-foot"><span class="wp-dim">2160×4800</span><button type="button" class="wp-export" data-wp-export="phone">导出此端</button></div>
+              </div>
+              <div class="wp-panel" data-wp-platform="tablet">
+                <div class="wp-panel-head"><span class="wp-label">安卓平板</span><span class="wp-ratio">16:10</span></div>
+                <canvas id="wp-canvas-tablet" class="wp-canvas"></canvas>
+                <div class="wp-panel-foot"><span class="wp-dim">3840×2400</span><button type="button" class="wp-export" data-wp-export="tablet">导出此端</button></div>
+              </div>
+              <div class="wp-panel" data-wp-platform="ipad">
+                <div class="wp-panel-head"><span class="wp-label">iPad</span><span class="wp-ratio">4:3</span></div>
+                <canvas id="wp-canvas-ipad" class="wp-canvas"></canvas>
+                <div class="wp-panel-foot"><span class="wp-dim">3840×2880</span><button type="button" class="wp-export" data-wp-export="ipad">导出此端</button></div>
+              </div>
+            </div>
+
+            <div class="wp-panel">
+              <div class="wp-panel-head"><span class="wp-label">实时调色</span><button type="button" id="wallpaper-reset-grading" class="mini-btn">重置调色</button></div>
+              <div class="wp-grading-layout">
+                <div id="wallpaper-grading" class="wp-grading"></div>
+                <aside class="wp-grading-presets">
+                  <h4 class="wp-grading-presets-title">预设调色</h4>
+                  <p class="model-note">按「服饰 / 环境」冷暖组合一键套用整体调色。</p>
+                  <div id="wallpaper-grading-presets" class="wp-grading-presets-list"></div>
+                </aside>
+              </div>
+            </div>
+
+            <div class="wp-panel">
+              <div class="wp-panel-head"><span class="wp-label">循环时长</span></div>
+              <div class="wp-tuners">
+                <label class="wm-field">时长 <input type="range" id="wallpaper-duration" min="3" max="5" step="1" value="4"> <output id="wallpaper-duration-label">4s</output></label>
+              </div>
+              <p class="model-note">时长只在「纯图片」底图下生效；底图是视频时，循环会自动对齐视频自身长度。</p>
+            </div>
+
+            <div class="wm-actions-bar">
+              <button type="button" class="pack-btn" id="wallpaper-export-all">导出四端并自动下载</button>
+              <button type="button" class="pack-btn wp-cancel" id="wallpaper-cancel" hidden>取消导出</button>
+              <span id="wallpaper-status" class="wp-status"></span>
+              <div id="wallpaper-progress" class="wp-progress" hidden>
+                <div class="wp-progress-track"><div id="wallpaper-progress-bar" class="wp-progress-bar"></div></div>
+                <span id="wallpaper-progress-label" class="wp-progress-label">0%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section id="page-tasks" class="page" data-page="tasks" hidden>
+        <div class="task-shell">
+          <div class="task-head">
+            <div>
+              <h2>任务队列</h2>
+              <p class="model-note">两个单线程池：一般生成 / 微调 / 换衣走「生成队列」，动态壁纸走「壁纸处理队列」。两池并行、各自内部串行，队列上限 64。任务在服务端执行，刷新或关页都不会中断。每栏按提交时间倒序，最新的在最上面，各自分页。</p>
+            </div>
+            <button type="button" class="mini-btn" id="tasks-refresh">刷新</button>
+          </div>
+          <div class="task-tabs" role="tablist" aria-label="任务池筛选">
+            <button type="button" class="task-tab active" data-task-filter="all" aria-selected="true">全部</button>
+            <button type="button" class="task-tab" data-task-filter="main" aria-selected="false">生成队列</button>
+            <button type="button" class="task-tab" data-task-filter="wallpaper" aria-selected="false">壁纸处理队列</button>
+          </div>
+          <div id="tasks-list" class="task-list"></div>
+        </div>
+      </section>
+      <section id="download-view" class="page" data-page="download" hidden>
+        <div class="download-shell">
+          <div class="download-head">
+            <h2>下载页</h2>
+            <button type="button" id="download-back" class="link-btn">返回生成页</button>
+          </div>
+          <div class="download-tabs" role="tablist" aria-label="下载页分类">
+            <button type="button" class="download-tab" role="tab" data-download-tab="all" aria-selected="true">全部</button>
+            <button type="button" class="download-tab" role="tab" data-download-tab="base" aria-selected="false">基准立绘</button>
+            <button type="button" class="download-tab" role="tab" data-download-tab="clothing" aria-selected="false">服饰基准</button>
+          </div>
+          <div id="download-list" data-download-pane="all"></div>
+          <div id="base-select" data-download-pane="base" hidden></div>
+          <div id="clothing-pairs" data-download-pane="clothing" hidden></div>
+        </div>
+      </section>
+    </main>
   </div>
-  <div id="download-view" hidden>
-    <button type="button" id="download-back">返回工作台</button>
-    <div id="download-list"></div>
+
+  <div id="fullscreen" hidden>
+    <button type="button" id="fullscreen-close" aria-label="关闭全屏预览">×</button>
+    <img id="fullscreen-img" alt="全屏预览">
   </div>
+
   <div id="toast"></div>
+
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

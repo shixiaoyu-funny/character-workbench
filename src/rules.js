@@ -1,6 +1,10 @@
 // 联动规则：年龄池、显隐、禁用、多选修正与警告。
 
-import { OPTIONS, ASPECT_OPTIONS } from './catalog.js';
+import {
+  OPTIONS, ASPECT_OPTIONS, WU_VALUES, POSE_INHERIT, poseCompatibleValues, mouthAllowedValues,
+  BACKGROUND_PHYSICS,
+} from './catalog.js';
+import { normalizeClothing, wearingSkirt } from './clothing.js';
 import { defaultState } from './state.js';
 
 const MALE_AGES = ['小孩', '少年', '青年', '成年'];
@@ -10,7 +14,7 @@ const MULTI_WITH_WU = new Set([
   'specialMakeup', 'effectSymbols', 'visualEffects', 'feminineAccessories',
   'masculineAccessories', 'fantasyAccessories', 'faceNeck', 'handsBack', 'handheld',
 ]);
-const CAPPED_TWO = new Set(['handheld', 'visualEffects']);
+const CAPPED_TWO = new Set(['visualEffects', 'outfitEffects']);
 
 // 女性专属选项：男性未开伪娘开关时隐藏。
 const FEMALE_ONLY = {
@@ -20,49 +24,40 @@ const FEMALE_ONLY = {
   mouth: ['樱桃小嘴'],
   lipstick: ['亮面唇釉（水润）', '咬唇妆（渐变）'],
   eyeMakeup: ['浓密睫毛', '卧蚕'],
-  onePiece: ['连衣裙', '洛丽塔洋装', '女仆装'],
-  top: ['吊带', '抹胸'],
-  bottom: ['包臀裙', '百褶裙'],
-  shoes: ['高跟鞋'],
-  socks: ['连裤袜（黑丝/白丝）'],
   hat: ['女仆头饰'],
-  handPose: ['提着裙摆'],
+  handPose: ['单手提着裙摆'],
   mouthStates: ['嘟嘴(生气/可爱)'],
 };
 
 // 男性替换发型：性别为女时不可见。
 const MALE_ONLY = { hairStyle: ['狼尾（Mullet）', '碎发', '大背头', '飞机头'] };
 
-// 萝莉隐藏项。
-const LOLI_HIDDEN = {
-  hairStyle: ['大波浪', '姬发式'],
-  hairLength: ['超长拖地发'],
-  eyeShape: ['上挑眼（凌厉·魅惑）'],
-  mouth: ['猫唇（M字唇）'],
-  facialFeatures: ['面部纹身（可选位置）'],
-  faceShape: ['方脸·硬朗（偏男性）'],
-  lipstick: ['亮面唇釉（水润）', '咬唇妆（渐变）'],
-  blush: ['横向腮红（微醺/醉酒）', '重度（全脸通红）'],
-  eyeMakeup: ['眼线（上挑猫眼/下垂无辜眼）'],
-  bottom: ['包臀裙'],
-  top: ['吊带', '抹胸', '露脐装'],
-  shoes: ['高跟鞋'],
-  socks: ['渔网袜'],
-  materials: ['半透明（需谨慎）'],
-  pose: ['躺姿', '趴姿', '蹲姿', '跪姿', '奔跑中'],
-  mouthStates: ['吐舌(调皮)'],
-  colorPreset: ['night-rose', 'dark-gold'],
+// 需要特定穿搭才成立的手部动作（帽子/眼镜/领带/裙摆）。
+const HAND_POSE_NEEDS = {
+  单手扶帽檐: (s) => s.hat !== '无',
+  单手扶眼镜: (s) => [...(Array.isArray(s.faceNeck) ? s.faceNeck : []),
+    ...(Array.isArray(s.facialFeatures) ? s.facialFeatures : [])].some((value) => value.includes('眼镜')),
+  整理领带: (s) => (Array.isArray(s.faceNeck) ? s.faceNeck : []).some((value) => value === '领带' || value === '领结'),
+  单手提着裙摆: (s) => wearingSkirt(s),
 };
 
-// 萝莉默认隐藏的武器类，末世废土/赛博朋克定位时恢复可见。
-const LOLI_HIDDEN_WEAPONS = { handheld: ['枪械', '匕首'], handsBack: ['纹身（手臂）'] };
-
-// 少女隐藏项。
-const SHOUJO_HIDDEN = {
-  facialFeatures: ['面部纹身（可选位置）'],
-  blush: ['重度（全脸通红）'],
-  materials: ['破损（战损）', '半透明（需谨慎）'],
+// 必须手里真的拿着对应道具才成立的动作。
+const HAND_POSE_ITEM = {
+  抱枕头: ['枕头'],
+  双手抓住毯子: ['毛毯'],
+  双手拉背包带: ['背包'],
 };
+
+function heldItems(state) {
+  return (Array.isArray(state.handheld) ? state.handheld : []).filter((value) => value && value !== '无');
+}
+
+function handPoseItemOk(value, state) {
+  const need = HAND_POSE_ITEM[value];
+  if (!need) return true;
+  const held = heldItems(state);
+  return need.some((item) => held.includes(item));
+}
 
 const TEMPLATE = defaultState();
 const SINGLE_FIELDS = Object.keys(TEMPLATE).filter(
@@ -90,23 +85,56 @@ export function optionVisible(field, value, state) {
   const options = OPTIONS[field];
   if (!options) return true; // 布尔开关（crossdressing/ahoge）等无选项字段
   if (!options.some((opt) => opt.value === value)) return false;
-  const male = state.gender === '男';
-  if (male && !state.crossdressing && (FEMALE_ONLY[field] || []).includes(value)) return false;
-  if (!male && (MALE_ONLY[field] || []).includes(value)) return false;
-  if (field === 'age') return (male ? MALE_AGES : FEMALE_AGES).includes(value);
-  if (state.age === '萝莉') {
-    if ((LOLI_HIDDEN[field] || []).includes(value)) return false;
-    if (state.role !== '末世废土' && state.role !== '赛博朋克'
-      && (LOLI_HIDDEN_WEAPONS[field] || []).includes(value)) return false;
+  const tuneOnly = field === 'pose' || field === 'handPose' || field === 'headDirection'
+    || field === 'gazes' || field === 'eyeEmotions' || field === 'mouthStates'
+    || field === 'effectSymbols' || field === 'handheld';
+  if (!tuneOnly) {
+    const male = state.gender === '男';
+    if (male && !state.crossdressing && (FEMALE_ONLY[field] || []).includes(value)) return false;
+    if (!male && (MALE_ONLY[field] || []).includes(value)) return false;
+    if (field === 'age') return (male ? MALE_AGES : FEMALE_AGES).includes(value);
   }
-  if (state.age === '少女' && (SHOUJO_HIDDEN[field] || []).includes(value)) return false;
+  const allowed = poseCompatibleValues(field, state.pose);
+  if (allowed && !allowed.includes(value)) return false;
+  if (field === 'handPose') {
+    const needs = HAND_POSE_NEEDS[value];
+    if (needs && !needs(state)) return false;
+    if (!handPoseItemOk(value, state)) return false;
+  }
+  // 嘴部状态必须与已选的眼部情绪相配（未选眼部情绪时不限制）。
+  if (field === 'mouthStates') {
+    const mouths = mouthAllowedValues(state.eyeEmotions);
+    if (mouths && !mouths.includes(value)) return false;
+  }
   return true;
 }
 
+// 两只手都占住了，就不能再拿一件东西。单手动作留着另一只手。
+export const BOTH_HANDS = new Set([
+  '双手抱胸', '双手背后', '双手合十', '摊开双手', '双手放腿上', '抱膝',
+  '双手枕在脑后', '双手放腹部', '双手交叉放胸前', '双手撑地', '双手托下巴',
+  '双手放在胸前', '双手垫在脸下', '双手举起', '双手抱膝', '双手放膝盖',
+  '抱着膝盖发呆', '祈祷', '双手插兜', '双手张开', '双手向上伸', '抱枕头',
+  '双手交叠放在身前', '双手握拳放身侧', '双手捧脸', '双手捂耳朵', '双手捂嘴',
+  '双臂环抱自己', '双手抓住衣角', '双手举起投降', '双手比心', '双手抱头',
+  '双手做喇叭状', '双手摊开耸肩', '双手捧起头发', '双手捂住脸', '双手拉背包带',
+  '双手抓住毯子', '双手交握放在腹部', '双手放在桌面上',
+]);
+
+const LABEL_RENAMES = {
+  handPose: { '提着裙摆': '单手提着裙摆' },
+  gazes: { '眼神向别处飘（傲娇/走神）': '眼神向别处飘' },
+  effectSymbols: { '星星眼(已选可忽略)': '星星眼', '泪滴(委屈)': '泪滴' },
+};
+
 export function optionDisabled(field, value, state) {
-  if (field === 'handPose' && value === '双手抱胸' && (state.handheld || []).includes('长剑')) return true;
-  if (field === 'handheld' && value === '长剑' && state.handPose === '双手抱胸') return true;
-  return false;
+  if (field !== 'handPose') return false;
+  const held = heldItems(state);
+  // 动作本身就是拿这件道具（抱枕头/抓毯子/拉背包带）时不算冲突。
+  const need = HAND_POSE_ITEM[value];
+  if (need && need.some((item) => held.includes(item))) return false;
+  if (!BOTH_HANDS.has(value)) return false;
+  return held.length > 0;
 }
 
 export function applyLinkage(state) {
@@ -115,6 +143,16 @@ export function applyLinkage(state) {
   if (typeof s.crossdressing !== 'boolean') s.crossdressing = false;
   if (!fieldVisible('crossdressing', s)) s.crossdressing = false;
   if (typeof s.ahoge !== 'boolean') s.ahoge = false;
+  for (const field of ['pose', 'handPose', 'headDirection']) {
+    if (typeof s[field] === 'string') s[field] = s[field] ? [s[field]] : [];
+    else if (!Array.isArray(s[field])) s[field] = [];
+  }
+  s.pose = expandPoses(s.pose);
+  for (const [field, renames] of Object.entries(LABEL_RENAMES)) {
+    if (!Array.isArray(s[field])) continue;
+    s[field] = s[field].map((value) => renames[value] || value);
+  }
+  s.handPose = s.handPose.filter((value) => value !== '持物（配合道具）');
   const pool = s.gender === '男' ? MALE_AGES : FEMALE_AGES;
   if (!pool.includes(s.age)) s.age = pool[0];
   for (const field of SINGLE_FIELDS) {
@@ -126,37 +164,62 @@ export function applyLinkage(state) {
   }
   for (const field of MULTI_FIELDS) {
     let values = (Array.isArray(s[field]) ? s[field] : []).filter((v) => optionVisible(field, v, s));
-    if (MULTI_WITH_WU.has(field)) values = values.filter((v) => v !== '无');
+    values = values.filter((v) => !optionDisabled(field, v, s));
+    if (MULTI_WITH_WU.has(field)) values = values.filter((v) => !WU_VALUES.includes(v));
     if (CAPPED_TWO.has(field)) values = values.slice(0, 2);
     s[field] = values;
   }
   for (const [field, list] of Object.entries(ASPECT_OPTIONS)) {
     if (!list.includes(s[field])) s[field] = list[0];
   }
+  normalizeClothing(s);
   return s;
+}
+
+const POSE_CHILDREN = Object.entries(POSE_INHERIT).reduce((groups, [child, parent]) => {
+  if (!groups[parent]) groups[parent] = [];
+  groups[parent].push(child);
+  return groups;
+}, {});
+
+function expandPoses(values) {
+  const out = [];
+  for (const value of values) {
+    for (const pose of POSE_CHILDREN[value] || [value]) {
+      if (!out.includes(pose)) out.push(pose);
+    }
+  }
+  return out;
+}
+
+function isLyingFamily(pose) {
+  return pose === '躺姿' || pose === '趴姿' || POSE_INHERIT[pose] === '躺姿' || POSE_INHERIT[pose] === '趴姿';
+}
+
+// 站立/行走/奔跑/跳跃：直立姿态，落到低矮坐卧支撑物上容易穿模。
+function isUprightPose(pose) {
+  return pose === '站立' || pose === '行走中' || pose === '奔跑中' || pose === '跳跃中';
 }
 
 export function warnings(state) {
   const s = applyLinkage(state);
   const out = [];
-  if ((s.pose === '躺姿' || s.pose === '趴姿') && s.camera === '平视(默认)') {
+  const poses = Array.isArray(s.pose) ? s.pose : [s.pose];
+  if (poses.some(isLyingFamily) && s.camera === '平视(默认)') {
     out.push('躺/趴姿势搭配平视容易出图失败，建议改为俯视。');
   }
   if (s.hat !== '无') out.push('帽子可能遮挡部分发型。');
   if (s.mainColors.length > 3 || s.accentColors.length > 5) {
     out.push('颜色过多可能导致AI出图画面杂乱，建议精简颜色。');
   }
+  // 站立/行走/奔跑/跳跃 + 沙发床等坐卧支撑物场景：站立姿势与低矮支撑物易穿模。
+  if (BACKGROUND_PHYSICS[s.background] === 'support' && poses.some(isUprightPose)) {
+    out.push('站立/行走/奔跑/跳跃姿势搭配沙发、床等坐卧场景可能穿模，建议改为坐姿或躺姿。');
+  }
   return out;
 }
 
 export function orderedOptions(field, state) {
   const options = [...(OPTIONS[field] || [])];
-  if (field === 'background') {
-    const preferred = { 赛博朋克: '赛博霓虹街', '西式奇幻（剑与魔法）': '奇幻森林' }[state.role];
-    if (preferred) {
-      const index = options.findIndex((opt) => opt.value === preferred);
-      if (index > 0) options.unshift(...options.splice(index, 1));
-    }
-  }
   return options;
 }

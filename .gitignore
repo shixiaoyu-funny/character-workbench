@@ -5,3 +5,13 @@ __pycache__/
 *.pyc
 .env
 output/
+data/
+
+# 运行时产物（母版视频、临时导出），不进版本库
+server/media/
+server-*.log
+
+# 桌宠 / Spine 资产线：独立工作，素材动辄几个 GB，不进本仓库
+spine_test/
+spine_make/
+原Q版桌宠制作方法/

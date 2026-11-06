@@ -1,7 +1,7 @@
 import { applyLinkage } from './rules.js';
 import { createFaceStore } from './face.js';
 import { createGallery } from './gallery.js';
-import { mount } from './dom.js';
+import { mount, loadHistory } from './dom.js';
 
 function showToast(message) {
   const toast = document.getElementById('toast');
@@ -19,4 +19,6 @@ document.addEventListener('DOMContentLoaded', () => {
     onToast: showToast,
   });
   mount(document, { store, gallery, images });
+  // 异步拉取历史图片（OSS 持久化），失败静默忽略，不影响当前会话。
+  void loadHistory(document, gallery);
 });
