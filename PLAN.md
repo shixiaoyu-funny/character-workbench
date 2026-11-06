@@ -113,7 +113,7 @@ ai_role_gen/
 
 ## 4. 界面与导航
 
-界面是**侧边栏 + 主内容区**（不是旧设计稿的三栏）。`index.html` 左侧八个导航项，主区八个 `<section>` 按路由切换显隐（`#page-dressup` 是第九个 section，已从导航移除、路由表里仍在，见 §15）。顶栏固定「🌙 主题切换」「重置」按钮。
+界面是**侧边栏 + 主内容区**（不是旧设计稿的三栏）。`index.html` 左侧八个导航项，主区八个 `<section>` 按路由切换显隐（`#page-dressup` 是第九个 section，导航项已移除但路由仍在，只能从任务队列点「换衣」任务跳进去，见 §15）。整站没有 hash 路由，`showPage` 只由侧边栏点击、任务卡片跳转和重置驱动。顶栏固定「🌙 主题切换」「重置」按钮。
 
 | 路由 | 页面 | 内容 |
 | --- | --- | --- |
@@ -720,5 +720,10 @@ def stream_workers(remaining):
 3. **Q版风格参考图目录**：服务端实际读 `assets/q_photos_reference`（当前 2 张）；`assets/chibi-style` 为空占位。
 4. **前端颜色翻译默认走本地 mock**：`main.js` 未注入 `translateFetcher` 时，`translateColorName` 用 `mockTranslateColor`（本地 HSL 映射 + 300ms 延迟）；真实 `/api/translate-color` 链路已实现，需在挂载时注入 `fetcher` 才启用。
 5. **生图不可中断**：`urllib` 无法中断已在跑的请求，「停止生成」只能取消排队任务、丢弃在跑结果，真正调用的那次 HTTP 仍需等其返回。
-6. **换衣页是死代码（未清理）**：`index.html` 的 `data-route="dressup"` 导航与 `#page-dressup` 入口已删，但 `dom.js` 的 `ROUTES`/`PAGE_BY_ROUTE`/`renderDressup`/`startDressupGenerate`、`generate.js` 的 `planShot`/`buildStep` 的 dressup 分支、`taskview.js` 的「换衣」分组都还在。页面点不到，代码全留；要恢复还是删掉需要先决定（删之前记得先提交，否则不可恢复）。
+6. **换衣页：功能完整，但导航入口被移除**
+   - 它是完整链路，不是半成品：上传多角度照片 → `换衣三视图`（白底体型）+ `换衣头部三视图` → `换衣基准立绘`（体型取图1、脸与发型取图2）→ 再跑完整设定集。
+   - 三个专用图种已进 `KINDS`，提示词有 `buildBodySheetPrompt` / `buildHeadSheetPrompt` / `buildDressupBasePrompt`，模型路由有 `modelForDressup`（两张白底三视图走千问 `DRESSUP_IMAGE_MODEL`，基准立绘与后续图复用一般页映射）。
+   - 测试覆盖四处：`gallery.test.js` 的换衣路由与逐图种模型、`dom.test.js` 的页面渲染与按钮门禁、`prompts.test.js` 的换衣基准提示词。
+   - **入口现状**：`index.html` 里 `data-route="dressup"` 的导航项已删，`#page-dressup` 与 `ROUTES` / `PAGE_BY_ROUTE` 仍在。整站没有 hash 路由，所以唯一入口是**任务队列里点一条标题含「换衣」的任务**（`taskview.routeForTask` → `showPage(doc, 'dressup')`）。
+   - 结论：想继续用就恢复导航项（一行）；确认不用了再删（约 190 行代码 + 40 行测试），删前记得先提交。
 7. **两份文档的口径要一起维护**：本文档是唯一事实来源，改动功能后必须同步 §3 目录、§4 路由表、§13 路由表、§14 测试条数（这三处历史上都漂过）。
