@@ -955,10 +955,10 @@ test('the current eye colour wins over the locked base snapshot', async () => {
   assert.ok(job.prompt.includes('瞳色固定为「棕」'));
 });
 
-// 热门Q版：只取 1 张角色图在前、1 张风格图在后；张数走 baseCount。
-test('hot chibi sends one character sheet then exactly one style reference', async () => {
+// 热门Q版：只传那 1 张角色图，风格参考图彻底不传；张数走 baseCount。
+test('hot chibi sends only the uploaded sheet and no style reference', async () => {
   const gallery = createGallery();
-  const { streamCalls, fetcher, streamFetcher } = recording({ styleImages: [STYLE, STYLE2] });
+  const { fetcherCalls, streamCalls, fetcher, streamFetcher } = recording({ styleImages: [STYLE, STYLE2] });
   const A = 'data:image/png;base64,HOTA';
   await generateKind({
     kind: '热门Q版',
@@ -973,16 +973,18 @@ test('hot chibi sends one character sheet then exactly one style reference', asy
   });
   const jobs = jobsOf(streamCalls);
   assert.equal(jobs.length, 2, 'baseCount 2 must produce two images');
-  // 风格图只取第一张：STYLE2 不能被塞进去。
-  assert.deepEqual(jobs[0].referenceImages, [A, STYLE]);
+  // 风格图一张都不许进来：画风全在提示词里。
+  assert.deepEqual(jobs[0].referenceImages, [A]);
   assert.equal(jobs[0].model, 'qwen-image-3.0');
-  assert.ok(jobs[0].prompt.includes('图 2 只提供 Q 版画法'));
+  assert.ok(jobs[0].prompt.includes('成品只画这一个角色'));
+  // 也不该再去要风格图
+  assert.equal(chibiCalls(fetcherCalls).length, 0);
 });
 
-// 页面已经只留一个上传口，但底层仍要守住：多给的第二张会被丢掉，不会变成图 2。
+// 页面只有一个上传口，底层仍守住：多给的第二张会被丢掉。
 test('hot chibi ignores a second character sheet if one sneaks in', async () => {
   const gallery = createGallery();
-  const { streamCalls, fetcher, streamFetcher } = recording({ styleImages: [STYLE] });
+  const { streamCalls, fetcher, streamFetcher } = recording();
   const A = 'data:image/png;base64,HOTA';
   const B = 'data:image/png;base64,HOTB';
   await generateKind({
@@ -995,5 +997,5 @@ test('hot chibi ignores a second character sheet if one sneaks in', async () => 
     randomSeed: sequence(6),
     snapshot: { upload: null, base: null, clothingPair: null, hots: [A, B] },
   });
-  assert.deepEqual(jobsOf(streamCalls)[0].referenceImages, [A, STYLE]);
+  assert.deepEqual(jobsOf(streamCalls)[0].referenceImages, [A]);
 });

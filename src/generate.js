@@ -272,15 +272,14 @@ async function buildStep({
   let refs = plan.referenceImages.map((value) => toRef(value, transform));
   const charCount = refs.length;
   let styleCount = 0;
-  if (kind === 'Q版形象' || kind === '热门Q版') {
+  // 只有「Q版形象」吃风格参考图；「热门Q版」的画风完全由提示词描述，不再传图。
+  if (kind === 'Q版形象') {
     const data = await fetcher('/api/chibi-style', { method: 'GET' });
     const styles = data && Array.isArray(data.images) ? data.images.filter(Boolean) : [];
     // 风格图只作为多图输入。参考图上限随模型变：qwen-image-3.0 是 3 张，其余到 10 张。
     // 锁脸基准排在风格图前面，名额不够时先丢掉后面的风格图。
     const room = Math.max(0, chosen.maxReferences - refs.length);
-    // 热门Q版固定只用 1 张风格图（图库风格图是「画法」样本，多给只会抢配色）。
-    const limit = kind === '热门Q版' ? Math.min(1, room) : room;
-    const picked = styles.slice(0, limit);
+    const picked = styles.slice(0, room);
     styleCount = picked.length;
     refs = [...refs, ...picked.map(literal)];
   }

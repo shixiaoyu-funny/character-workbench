@@ -100,19 +100,47 @@ const CHIBI_LOCK_SENTENCE = '(same face as the first reference:1.5)';
 // 与「Q版形象」的区别只在输入源：那边是锁定的基准立绘 + 全部风格图，
 // 这边是用户现场传的 1~2 张正比立绘 + 固定 1 张风格图。
 // 身份全部来自正比图，所以提示词里不拼任何角色标签（tagSequence 为空）。
-// 只收 1 张角色图：角色图 = 图 1，风格图 = 图 2。
+// 只收 1 张角色图，且**不再传风格参考图**：画风由 HOT_CHIBI_* 那组文字描述。
 // 「成品只画一个角色」必须写死：用户很可能传一张双人截图，模型会忠实地把两个人都画出来。
-function hotChibiRoleClause(charCount, styleCount) {
-  const styleIndex = Math.max(1, charCount) + 1;
-  const identity = '图 1 是角色参考图，角色的长相、五官、发色、瞳色、服装与配色全部以它为准；'
-    + '成品只画这一个角色，图 1 里如果还有别的角色，一律不要画进成品。';
-  if (!styleCount) {
-    return `${identity}头身比与画风按下面的 Q 版指令来。`;
-  }
-  return `${identity}图 ${styleIndex} 只提供 Q 版画法：头身比、线条粗细、`
-    + '上色与阴影方式；它不提供角色特征、发型、服装与任何颜色。';
+function hotChibiRoleClause() {
+  return '图 1 是角色参考图，角色的长相、五官、眼睛颜色、发型与发色、服装与配色全部以它为准；'
+    + '成品只画这一个角色，图 1 里如果还有别的角色，一律不要画进成品。'
+    + '头身比、线条与上色方式按下面的 Q 版指令来。';
 }
 
+
+// ---------------- 热门Q版：只锁「Q 版的形」，不锁角色 ----------------
+// 发色、瞳色、发型、服装、配饰全部来自上传图；这里只描述 Q 版这个「形」怎么画。
+// 归纳自交付样张的通用特征（不是那只粉色双马尾）：
+//   约 2.2 头身、头占全高近一半、短手短脚、眼睛几乎占满脸、高光很亮；
+//   细而干净的描边（线色比固有色深一点，不是纯黑）、cel 上色但过渡柔和、
+//   几乎无硬阴影、纯白背景、正面全身站立。
+const HOT_CHIBI_FORM_LOCKS = [
+  '(chibi proportions:1.6)', '(2.2 heads tall:1.5)', '(2.5 heads tall:1.4)',
+  '(oversized head:1.6)', '(tiny body:1.5)',
+  'head occupying almost half of the total height',
+  'short stubby limbs', 'chibi hands', 'small rounded hands', 'simplified anatomy',
+  '(huge eyes filling most of the face:1.5)',
+  '(bright white highlights inside the eyes:1.4)',
+  'clear upper eyelashes', 'soft blush on the cheeks',
+  'full body, standing, facing the viewer, arms relaxed at the sides, both feet flat on the ground',
+];
+
+const HOT_CHIBI_RENDER_LOCKS = [
+  'clean anime illustration', 'cel shading',
+  '(thin delicate lineart, outline color slightly darker than the fill instead of pure black:1.5)',
+  'soft blended transitions between shades',
+  'glossy hair with a few fine strands',
+  '(soft even lighting, no harsh cast shadow:1.3)',
+  'pure white background, no shadow on the ground',
+];
+
+// 与「形」相反的画法：厚涂硬边、纯黑粗描边、高对比、写实/3D 都不是这个图种要的。
+const HOT_CHIBI_RENDER_NEGATIVE = [
+  '(thick black outlines:1.5)', '(harsh shadows:1.4)', '(high contrast:1.3)',
+  '(dark shading:1.3)', '(heavy impasto painting:1.4)',
+  '(photorealistic:1.4)', '(3d render:1.5)', '(pixel art:1.2)', '(sketch:1.2)',
+];
 
 const FIXED = {
   基准立绘: [
@@ -608,7 +636,6 @@ export function buildPrompt(state, kind, { hasReference = false, styleCount = 0,
   // 热门Q版：身份 100% 来自上传的正比图，所以只拼「Q 版怎么画」相关的段落，
   // 一个角色标签都不加（脸、发、衣服、瞳色全交给图 1、图 2）。
   if (kind === '热门Q版') {
-    const hotStyle = styleOf(state);
     const hotParts = [];
     const hotSeen = new Set();
     const pushHot = (value) => {
@@ -618,16 +645,17 @@ export function buildPrompt(state, kind, { hasReference = false, styleCount = 0,
       }
     };
     pushHot(CHIBI_COMPOSITION);
-    pushHot(hotChibiRoleClause(charCount, styleCount));
+    pushHot(hotChibiRoleClause());
     if (hasReference) pushHot(CHIBI_LOCK_SENTENCE);
     pushHot(eyeColorClause(state));
-    for (const tag of hotStyle.positive) pushHot(tag);
-    for (const tag of CHIBI_PROPORTION_LOCKS) pushHot(tag);
+    // 只给「形」与「画法」：这个图种不吃风格参考图，也不吃 global style 的厚涂字样。
+    for (const tag of HOT_CHIBI_FORM_LOCKS) pushHot(tag);
+    for (const tag of HOT_CHIBI_RENDER_LOCKS) pushHot(tag);
     for (const tag of FIXED[kind] || []) pushHot(tag);
     return {
       positive: hotParts.join(', '),
       negative: [...new Set([
-        ...hotStyle.negative,
+        ...HOT_CHIBI_RENDER_NEGATIVE,
         ...(NEGATIVE[kind] || []),
         ...eyeColorNegative(state),
       ])].join(', '),

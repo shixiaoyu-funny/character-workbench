@@ -966,29 +966,39 @@ test('eye colour reaches the turnaround and the expression chart too', () => {
   }
 });
 
-// 热门Q版：只收 1 张角色图，风格图固定排在图 2；成品只许画一个角色。
-test('hot chibi reads one character sheet and one style reference', () => {
-  const p = buildPrompt(defaultState(), '热门Q版', { hasReference: true, styleCount: 1, charCount: 1 });
+// 热门Q版：只收 1 张角色图、**不再传风格参考图**。提示词只锁「Q 版的形」，不锁任何具体角色。
+test('hot chibi locks the chibi form and reads identity from the single upload', () => {
+  const p = buildPrompt(defaultState(), '热门Q版', { hasReference: true });
   assert.ok(p.positive.includes('图 1 是角色参考图'));
   assert.ok(p.positive.includes('成品只画这一个角色'));
-  assert.ok(p.positive.includes('图 2 只提供 Q 版画法'));
-  assert.ok(p.positive.includes('(2 heads tall:1.6)'));
-  // 身份来自上传图，所以一个工作台角色标签都不该出现。
-  assert.equal(p.positive.includes('twintails'), false);
-  assert.equal(p.positive.includes('1girl'), false);
+  // 形：头身比、大眼、短肢
+  assert.ok(p.positive.includes('(2.2 heads tall:1.5)'));
+  assert.ok(p.positive.includes('head occupying almost half of the total height'));
+  assert.ok(p.positive.includes('(huge eyes filling most of the face:1.5)'));
+  // 画法：细描边 + 柔和过渡 + 白底
+  assert.ok(p.positive.includes('thin delicate lineart'));
+  assert.ok(p.positive.includes('soft blended transitions between shades'));
   assert.equal(p.aspect, '1:1');
 });
 
-test('hot chibi drops the style clause when the style image is missing', () => {
-  const p = buildPrompt(defaultState(), '热门Q版', { hasReference: true, styleCount: 0, charCount: 1 });
-  assert.equal(p.positive.includes('只提供 Q 版画法'), false);
-  assert.ok(p.positive.includes('头身比与画风按下面的 Q 版指令来'));
+test('hot chibi never bakes a specific character into the style wording', () => {
+  const p = buildPrompt(defaultState(), '热门Q版', { hasReference: true });
+  // 不读工作台表单
+  assert.equal(p.positive.includes('twintails'), false);
+  assert.equal(p.positive.includes('1girl'), false);
+  // 也不许把样张角色的特征写进画风词
+  for (const leaked of ['pink hair', 'blue hair', 'ahoge', 'lace trims', 'satins', 'beret']) {
+    assert.equal(p.positive.includes(leaked), false, leaked);
+  }
+  // 没有风格图，就不该再出现「图 2 只提供画法」这类分工句
+  assert.equal(p.positive.includes('图 2'), false);
 });
 
-test('hot chibi pins the eye colour and forbids a second character', () => {
-  const p = buildPrompt({ ...defaultState(), eyeColor: '棕' }, '热门Q版', { hasReference: true, styleCount: 1, charCount: 1 });
+test('hot chibi negates heavy rendering and a second character', () => {
+  const p = buildPrompt({ ...defaultState(), eyeColor: '棕' }, '热门Q版', { hasReference: true });
   assert.ok(p.positive.includes('瞳色固定为「棕」'));
+  assert.ok(p.negative.includes('(thick black outlines:1.5)'));
+  assert.ok(p.negative.includes('(harsh shadows:1.4)'));
+  assert.ok(p.negative.includes('(3d render:1.5)'));
   assert.ok(p.negative.includes('(two characters:1.5)'));
-  assert.ok(p.negative.includes('(second person:1.5)'));
-  assert.ok(p.negative.includes('(complex background:1.3)'));
 });
