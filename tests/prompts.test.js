@@ -1034,3 +1034,56 @@ test('white background leaves the prompts untouched', () => {
   assert.ok(p.positive.includes('white background'));
   assert.equal(p.negative.includes('(white background:1.3)'), false);
 });
+
+// 微调里的「袜子消失」：参考图有白丝，但提示词不点名，模型就画裸腿（实测 4 张丢 3 张）。
+test('tune names the legwear so the socks survive a pose change', () => {
+  const state = applyLinkage({
+    ...defaultState(),
+    pose: ['站立'],
+    socks: { skeleton: '大腿袜（绝对领域）', style: '连裤袜', detail: '无额外细节', color: '白', colorCustom: '' },
+  });
+  const [combo] = tuneCombinations(state);
+  const p = buildTunePrompt(state, combo);
+  assert.ok(p.positive.includes('white pantyhose'));
+  assert.ok(p.positive.includes('(same legwear as the first reference:1.3)'));
+  // 连裤袜是全腿覆盖，裸腿要排掉
+  assert.ok(p.positive.includes('(legs fully covered by tights:1.4)'));
+  assert.ok(p.negative.includes('(missing socks:1.3)'));
+  assert.ok(p.negative.includes('(bare legs:1.4)'));
+});
+
+test('over-the-knee socks do not forbid bare thighs', () => {
+  const state = applyLinkage({
+    ...defaultState(),
+    pose: ['站立'],
+    socks: { skeleton: '过膝袜', style: '常规', detail: '无额外细节', color: '白', colorCustom: '' },
+  });
+  const [combo] = tuneCombinations(state);
+  const p = buildTunePrompt(state, combo);
+  assert.ok(p.positive.includes('white over-the-knee socks'));
+  // 大腿袜/过膝袜上面本来就是裸腿，不能排
+  assert.equal(p.negative.includes('(bare legs:1.4)'), false);
+  assert.equal(p.negative.includes('(bare thighs:1.3)'), false);
+});
+
+test('no socks means no legwear lock at all', () => {
+  const state = applyLinkage({ ...defaultState(), pose: ['站立'], socks: defaultState().socks });
+  const [combo] = tuneCombinations(state);
+  const p = buildTunePrompt(state, combo);
+  assert.equal(p.positive.includes('same legwear as the first reference'), false);
+  assert.equal(p.negative.includes('(missing socks:1.3)'), false);
+});
+
+test('explicitly going barefoot drops the legwear lock instead of contradicting it', () => {
+  const state = applyLinkage({
+    ...defaultState(),
+    pose: ['站立'],
+    socks: { skeleton: '大腿袜（绝对领域）', style: '连裤袜', detail: '无额外细节', color: '白', colorCustom: '' },
+    tuneSocks: false,
+  });
+  const [combo] = tuneCombinations(state);
+  const p = buildTunePrompt(state, combo);
+  assert.equal(p.positive.includes('white pantyhose'), false);
+  assert.ok(p.positive.includes('no socks'));
+  assert.equal(p.negative.includes('(missing socks:1.3)'), false);
+});

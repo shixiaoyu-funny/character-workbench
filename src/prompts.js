@@ -5,7 +5,7 @@
 import {
   OPTIONS, COLOR_WORDS, PRESETS, FACE_FIELDS, POSE_INHERIT, mouthMatchesEyes, BACKGROUND_PHYSICS,
 } from './catalog.js';
-import { clothingExclusions, clothingTerms } from './clothing.js';
+import { clothingExclusions, clothingTerms, legwearTerms } from './clothing.js';
 
 export const KINDS = ['基准立绘', '三视图', '表情差分图', '服饰拆解图', '手部拆解图', 'Q版形象', '热门Q版'];
 
@@ -767,7 +767,19 @@ function tuneChineseClause(state, combo) {
   const intro = parts.length
     ? `请参考图中的人物设定，但必须让她${parts.join('，')}`
     : '请参考图中的人物设定';
-  return `${intro}。不要沿用参考图里的站立姿势。`;
+  // 袜子单独用中文再钉一句：换姿势重画时会重画腿，只靠英文标签常常把袜子丢掉。
+  const wearSocks = state.tuneSocks !== false;
+  const socksTag = wearSocks && !isBarefoot(state) ? legwearTerms(state) : [];
+  // 中文句里用中文说法，别把英文 tag 塞进中文句子（例：白色连裤袜 / 黑色短袜）。
+  const piece = state.socks || {};
+  const colorZh = piece.color && piece.color !== '无' ? `${piece.color}色` : '';
+  const styleZh = piece.style && piece.style !== '常规' ? piece.style : '';
+  const skelZh = piece.skeleton === '大腿袜（绝对领域）' ? '大腿袜' : (piece.skeleton || '');
+  const socksZh = `${colorZh}${styleZh || skelZh}`;
+  const socksSentence = socksTag.length
+    ? `腿上的袜子必须和参考图完全一致（${socksZh}），不能画成光腿。`
+    : '';
+  return `${intro}。不要沿用参考图里的站立姿势。${socksSentence}`;
 }
 
 // 英文光影与镜头词：画风 tag + 电影级打光 + 光影 + 景深，随风格分支。
@@ -860,6 +872,16 @@ export const NANO_HAND_NEGATIVE = '(bad hands:1.5), (deformed hands:1.4), '
 
 const BED_SHOE_NEGATIVE = [
   '(shoes on bed:1.4)', '(high heels on bed:1.4)', 'wearing shoes in bed',
+];
+
+// 微调里「袜子消失」是实测翻车点：参考图有白丝，但提示词不点名，模型就画裸腿。
+// 所以穿鞋/脱鞋时都要显式点名袜子；下面两组负向只在角色确实穿袜时启用。
+const LEGWEAR_NEGATIVE = [
+  '(missing socks:1.3)', '(socks removed:1.4)', '(no legwear:1.3)', '(bare ankles:1.3)',
+];
+// 连裤袜才「全腿覆盖」；大腿袜/过膝袜上面本来就要露出大腿，不能排裸腿。
+const FULL_LEG_NEGATIVE = [
+  '(bare legs:1.4)', '(bare thighs:1.3)', '(skin-colored legs:1.2)', '(no tights:1.3)',
 ];
 
 const REFERENCE_SOCKS = [
@@ -1048,6 +1070,11 @@ export function buildTunePrompt(state, combo = {}, { allowBedShoes = false, hasH
     : (BED_POSES.has(combo.pose) && !allowBedShoes
       ? 'unshod'
       : (barefoot ? 'barefoot' : 'shoes'));
+  // 袜子：不写成标签就一定丢（见 LEGWEAR_NEGATIVE 的注释）。
+  // 显式「不穿袜子」或彻底赤脚时不再点名袜子（否则会和 SOCKS_OFF_* 自相矛盾）。
+  const legwear = (!wearSocks || feet === 'barefoot') ? [] : legwearTerms(state);
+  const socksStyle = (state.socks && state.socks.style) || '';
+  const fullLegCover = legwear.length > 0 && socksStyle === '连裤袜';
   const positiveParts = [];
   const seen = new Set();
   const push = (value) => {
@@ -1088,6 +1115,13 @@ export function buildTunePrompt(state, combo = {}, { allowBedShoes = false, hasH
   for (const field of TUNE_AXES) {
     if (field === 'pose' || !combo[field]) continue;
     for (const term of splitTerms(tagOf(field, combo[field]))) push(term);
+  }
+  // 无论穿鞋还是脱鞋留袜，袜子都要点名：微调是「换姿势重画全身」，腿是重新生成的部分。
+  if (legwear.length) {
+    for (const tag of legwear) push(tag);
+    push('(same legwear as the first reference:1.3)');
+    push('(socks clearly visible:1.2)');
+    if (fullLegCover) push('(legs fully covered by tights:1.4)');
   }
   if (feet === 'unshod') {
     push('no shoes');
@@ -1131,6 +1165,8 @@ export function buildTunePrompt(state, combo = {}, { allowBedShoes = false, hasH
       ...(feet === 'unshod' && wearSocks ? SHOELESS_SOCKS_NEGATIVE : []),
       ...(!wearShoes ? SHOES_OFF_NEGATIVE : []),
       ...(!wearSocks ? SOCKS_OFF_NEGATIVE : []),
+      ...(legwear.length ? LEGWEAR_NEGATIVE : []),
+      ...(fullLegCover ? FULL_LEG_NEGATIVE : []),
       ...(modest ? MODESTY_NEGATIVE : []),
       // 任何坐/躺/趴姿势都加「防悬空」负向词：反重力、僵硬、无表面支撑。
       ...(isRestingPose(combo.pose) ? ['(floating in the air, antigravity, stiff pose, no surface support:1.3)'] : []),
