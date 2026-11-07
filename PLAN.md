@@ -437,13 +437,15 @@ ai_role_gen/
 - **Nano 防崩手补丁**：`NANO_HAND_POSITIVE`（`(perfect hands:1.4), (correct hand anatomy:1.3), exactly five fingers, slender fingers…`）固定在正向最末尾；`NANO_HAND_NEGATIVE`（`(bad hands:1.5), (deformed hands:1.4), extra fingers, missing fingers, fused fingers…`）整段放负向最前。
 - **走光防护**（`needsModesty`）：女角色 + 坐姿/躺姿/趴姿（含子类）/蹲姿/跪姿/跳跃中 → `(safety shorts:1.4), (fully clothed:1.3)` 等正向 + `(upskirt:1.5), (pantyshot:1.5)` 等负向。
 - **床姿鞋袜**（`BED_POSES`）：躺/趴/跪默认赤脚，`shotClause` 处理 `unshod`（no shoes + `(same socks as the first reference:1.3)`）；穿鞋需用户确认（`allowBedShoes`）。
-- **袜子必须显式点名**（2026-11-07 加）：微调是「换姿势重画全身」，腿是被重新生成的部分，而原来的提示词只在「脱鞋留袜」分支写 `REFERENCE_SOCKS`，**穿鞋时一个字都没提袜子** —— 实测全身像 4 张里丢了 3 张白丝（参考图有，成品是光腿）。
-  - `legwearTerms(state)`（`clothing.js` 新增导出）：只取袜子这一件的词，含颜色 + 款式（如 `white pantyhose` / `white over-the-knee socks` / `black socks`），逻辑与 `clothingTerms` 的袜子分支一致。
-  - 正向：`white pantyhose`, `(same legwear as the first reference:1.3)`, `(socks clearly visible:1.2)`；连裤袜再加 `(legs fully covered by tights:1.4)`。
-  - 负向：`(missing socks:1.3)`, `(socks removed:1.4)`, `(no legwear:1.3)`；**只有连裤袜**才加 `(bare legs:1.4)`、`(bare thighs:1.3)`（大腿袜/过膝袜上面本来就该露大腿，排了会反向压掉袜口）。
-  - 中文主句再加一句：`腿上的袜子必须和参考图完全一致（白色连裤袜），不能画成光腿。`（用中文说法，不把英文 tag 塞进中文句）。
-  - `tuneSocks=false` 或彻底赤脚时不点名袜子，避免与 `SOCKS_OFF_*` 自相矛盾（有测试守着）。
-
+- **袜子：靠「跟随参考图」或用户显式选择**（2026-11-07 加，改过一版）
+  - 起因：微调全身像 4 张里丢了 3 张白丝（参考图有、成品光腿）。原提示词只在「脱鞋留袜」分支写 `REFERENCE_SOCKS`，**穿鞋时一个字都没提袜子**。
+  - **第一版修错了**：去读 `state.socks`（「细节样式」表单里的袜子）。但微调页只吃上传的三张图，表单跟图没有绑定关系，读表单等于拿无关配置写提示词。
+  - 现方案：微调页「鞋袜」组新增 `袜子` / `袜子颜色` 两个下拉（`tuneLegwear` / `tuneLegwearColor`），选项 **跟随参考图 / 短袜 / 小腿袜 / 过膝袜 / 大腿袜 / 连裤袜**，颜色 跟随参考图 / 白 / 黑 / 粉 / 蓝 / 红 / 灰。
+    - **跟随参考图（默认）**：只写 `(same legwear as the first reference:1.3)`，中文写「腿上的穿着（有袜或裸腿）必须和参考图完全一致」——**不写具体袜子、也不排裸腿**（用户可能就是光腿）。
+    - **显式选款式**：写 `white pantyhose` / `white over-the-knee socks` / `black socks` 这类具体词 + `(same legwear as the first reference:1.3)` + `(socks clearly visible:1.2)`；负向加 `(missing socks:1.3)`、`(socks removed:1.4)`、`(no legwear:1.3)`。
+    - **只有连裤袜**（`TUNE_LEGWEAR_FULL`）才加 `(legs fully covered by tights:1.4)` 与 `(bare legs:1.4)`、`(bare thighs:1.3)`——大腿袜/过膝袜上面本来就该露大腿，排了会反向压掉袜口。
+    - `tuneSocks=false` 或彻底赤脚时，这两个下拉本身隐藏（`fieldVisible`），提示词也不提袜子。
+  - 顺序上先做「手动选择」，视觉识别（qwen-vl 读参考图自动填这个下拉）留作之后的增强，输出接到同一组字段上。
 - **鞋袜显式开关**（`tuneShoes` / `tuneSocks`，默认 `true` 跟随角色配置）：微调页「鞋袜」组两个切换按钮。`tuneShoes=false`（不穿鞋）→ 仍穿袜则脱鞋留袜（`unshod`），不穿袜则彻底赤脚（`barefoot`），并追加 `SHOES_OFF_NEGATIVE`（`(shoes:1.4)`、`(footwear:1.4)` 等）钉死无鞋；`tuneSocks=false`（不穿袜子）→ 追加 `SOCKS_OFF_POSITIVE`（`bare legs`、`no socks`、`no stockings` 等）与 `SOCKS_OFF_NEGATIVE`（`(socks:1.4)`、`(tights:1.4)`、`hosiery` 等），防止模型按参考图凭空补袜子。
 - `tuneCombinations`：`pose/handPose/headDirection/gazes/eyeEmotions/mouthStates/effectSymbols/handheld` 中选了 ≥2 项的轴做笛卡尔积，并剔除「开心 + 撇嘴」类冲突组合。
 

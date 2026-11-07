@@ -14,6 +14,9 @@ const DEFAULT_STATE = {
   eyeColor: '跟随参考图', eyeColorCustom: '',
   // 出图背景色：生成与处理页 / 热门Q版页共用；选绿就是给抠图用的 chroma key 绿幕。
   sheetBg: '白', sheetBgCustom: '#ffffff',
+  // 微调页的袜子：微调只吃上传的三张图，不读「细节样式」的表单，
+  // 所以袜子只能来自参考图（跟随参考图）或用户在这里显式指定。
+  tuneLegwear: '跟随参考图', tuneLegwearColor: '跟随参考图',
   hairLength: '中长发', hairStyle: '双马尾（高/低）', ahoge: false, bangs: '空气刘海',
   hairColor: '黑', hairColorCustom: '', hairColorExtra: '无',
   streakColor: '', gradientRootColor: '', gradientTipColor: '',
@@ -75,7 +78,7 @@ const TUNE_MULTI = ['pose', 'handPose', 'headDirection'];
 
 // 后加字段：旧存档缺这些键时回退默认值，而不是判定整份配置损坏。
 const LATE_FIELDS = new Set(['style', 'tuneAspect', 'tuneGender', 'eyeColor', 'eyeColorCustom',
-  'sheetBg', 'sheetBgCustom']);
+  'sheetBg', 'sheetBgCustom', 'tuneLegwear', 'tuneLegwearColor']);
 
 function migrateTuneState(value) {
   const next = { ...value };

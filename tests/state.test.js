@@ -55,7 +55,7 @@ test('sanitizeState rejects non-objects', () => {
 });
 
 test('sanitizeState rejects a missing default key', () => {
-  const keys = Object.keys(defaultState()).filter((key) => key !== 'style' && key !== 'tuneAspect' && key !== 'tuneGender' && key !== 'tuneShoes' && key !== 'tuneSocks' && key !== 'eyeColor' && key !== 'eyeColorCustom' && key !== 'sheetBg' && key !== 'sheetBgCustom');
+  const keys = Object.keys(defaultState()).filter((key) => key !== 'style' && key !== 'tuneAspect' && key !== 'tuneGender' && key !== 'tuneShoes' && key !== 'tuneSocks' && key !== 'eyeColor' && key !== 'eyeColorCustom' && key !== 'sheetBg' && key !== 'sheetBgCustom' && key !== 'tuneLegwear' && key !== 'tuneLegwearColor');
   assert.ok(keys.length > 0);
   for (const key of keys) {
     const broken = { ...defaultState() };

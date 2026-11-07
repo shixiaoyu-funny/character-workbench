@@ -5,7 +5,7 @@
 import {
   OPTIONS, COLOR_WORDS, PRESETS, FACE_FIELDS, POSE_INHERIT, mouthMatchesEyes, BACKGROUND_PHYSICS,
 } from './catalog.js';
-import { clothingExclusions, clothingTerms, legwearTerms } from './clothing.js';
+import { clothingExclusions, clothingTerms } from './clothing.js';
 
 export const KINDS = ['基准立绘', '三视图', '表情差分图', '服饰拆解图', '手部拆解图', 'Q版形象', '热门Q版'];
 
@@ -768,17 +768,17 @@ function tuneChineseClause(state, combo) {
     ? `请参考图中的人物设定，但必须让她${parts.join('，')}`
     : '请参考图中的人物设定';
   // 袜子单独用中文再钉一句：换姿势重画时会重画腿，只靠英文标签常常把袜子丢掉。
-  const wearSocks = state.tuneSocks !== false;
-  const socksTag = wearSocks && !isBarefoot(state) ? legwearTerms(state) : [];
-  // 中文句里用中文说法，别把英文 tag 塞进中文句子（例：白色连裤袜 / 黑色短袜）。
-  const piece = state.socks || {};
-  const colorZh = piece.color && piece.color !== '无' ? `${piece.color}色` : '';
-  const styleZh = piece.style && piece.style !== '常规' ? piece.style : '';
-  const skelZh = piece.skeleton === '大腿袜（绝对领域）' ? '大腿袜' : (piece.skeleton || '');
-  const socksZh = `${colorZh}${styleZh || skelZh}`;
-  const socksSentence = socksTag.length
-    ? `腿上的袜子必须和参考图完全一致（${socksZh}），不能画成光腿。`
-    : '';
+  const wearSocksZh = state.tuneSocks !== false;
+  const legwearPickZh = state.tuneLegwear && state.tuneLegwear !== TUNE_LEGWEAR_FOLLOW
+    ? String(state.tuneLegwear) : '';
+  const legwearColorZh = state.tuneLegwearColor && state.tuneLegwearColor !== TUNE_LEGWEAR_FOLLOW
+    ? `${state.tuneLegwearColor}色` : '';
+  let socksSentence = '';
+  if (wearSocksZh && !isBarefoot(state)) {
+    socksSentence = legwearPickZh
+      ? `腿上的袜子是${legwearColorZh}${legwearPickZh}，必须和参考图一致，不能画成光腿。`
+      : '腿上的穿着（有袜或裸腿）必须和参考图完全一致。';
+  }
   return `${intro}。不要沿用参考图里的站立姿势。${socksSentence}`;
 }
 
@@ -873,6 +873,20 @@ export const NANO_HAND_NEGATIVE = '(bad hands:1.5), (deformed hands:1.4), '
 const BED_SHOE_NEGATIVE = [
   '(shoes on bed:1.4)', '(high heels on bed:1.4)', 'wearing shoes in bed',
 ];
+
+// 微调页的袜子只能来自两个地方：参考图（默认）或用户在下拉里显式指定。
+// 注意：微调**不读「细节样式」的表单**（那个表单跟上传的三张图没有绑定关系），
+// 所以这里绝不拿 state.socks 来写提示词。
+const TUNE_LEGWEAR_TAGS = {
+  短袜: 'socks', 小腿袜: 'calf socks', 过膝袜: 'over-the-knee socks',
+  大腿袜: 'thighhighs', 连裤袜: 'pantyhose',
+};
+const TUNE_LEGWEAR_COLORS = {
+  白: 'white', 黑: 'black', 粉: 'pink', 蓝: 'blue', 红: 'red', 灰: 'gray',
+};
+const TUNE_LEGWEAR_FOLLOW = '跟随参考图';
+// 只有连裤袜是「全腿覆盖」；短袜/小腿袜/过膝袜/大腿袜上面本来就露腿。
+const TUNE_LEGWEAR_FULL = new Set(['连裤袜']);
 
 // 微调里「袜子消失」是实测翻车点：参考图有白丝，但提示词不点名，模型就画裸腿。
 // 所以穿鞋/脱鞋时都要显式点名袜子；下面两组负向只在角色确实穿袜时启用。
@@ -1070,11 +1084,14 @@ export function buildTunePrompt(state, combo = {}, { allowBedShoes = false, hasH
     : (BED_POSES.has(combo.pose) && !allowBedShoes
       ? 'unshod'
       : (barefoot ? 'barefoot' : 'shoes'));
-  // 袜子：不写成标签就一定丢（见 LEGWEAR_NEGATIVE 的注释）。
-  // 显式「不穿袜子」或彻底赤脚时不再点名袜子（否则会和 SOCKS_OFF_* 自相矛盾）。
-  const legwear = (!wearSocks || feet === 'barefoot') ? [] : legwearTerms(state);
-  const socksStyle = (state.socks && state.socks.style) || '';
-  const fullLegCover = legwear.length > 0 && socksStyle === '连裤袜';
+  // 袜子：微调只吃上传的图，所以默认「跟随参考图」；用户显式选了款式才写具体词。
+  // 显式「不穿袜子」或彻底赤脚时完全不提袜子（否则会和 SOCKS_OFF_* 自相矛盾）。
+  const legwearPick = state.tuneLegwear && state.tuneLegwear !== TUNE_LEGWEAR_FOLLOW
+    ? String(state.tuneLegwear) : '';
+  const legwearColorEn = TUNE_LEGWEAR_COLORS[state.tuneLegwearColor] || '';
+  const legwearTag = legwearPick ? (TUNE_LEGWEAR_TAGS[legwearPick] || '') : '';
+  const showLegwear = wearSocks && feet !== 'barefoot';
+  const fullLegCover = showLegwear && TUNE_LEGWEAR_FULL.has(legwearPick);
   const positiveParts = [];
   const seen = new Set();
   const push = (value) => {
@@ -1116,12 +1133,17 @@ export function buildTunePrompt(state, combo = {}, { allowBedShoes = false, hasH
     if (field === 'pose' || !combo[field]) continue;
     for (const term of splitTerms(tagOf(field, combo[field]))) push(term);
   }
-  // 无论穿鞋还是脱鞋留袜，袜子都要点名：微调是「换姿势重画全身」，腿是重新生成的部分。
-  if (legwear.length) {
-    for (const tag of legwear) push(tag);
-    push('(same legwear as the first reference:1.3)');
-    push('(socks clearly visible:1.2)');
-    if (fullLegCover) push('(legs fully covered by tights:1.4)');
+  // 无论穿鞋还是脱鞋留袜都要处理袜子：微调是「换姿势重画全身」，腿是重新生成的部分。
+  if (showLegwear) {
+    if (legwearTag) {
+      push(legwearColorEn ? `${legwearColorEn} ${legwearTag}` : legwearTag);
+      push('(same legwear as the first reference:1.3)');
+      push('(socks clearly visible:1.2)');
+      if (fullLegCover) push('(legs fully covered by tights:1.4)');
+    } else {
+      // 没指定款式：只保留弱一致性约束，不写具体袜子、也不排裸腿（用户可能就是光腿）。
+      push('(same legwear as the first reference:1.3)');
+    }
   }
   if (feet === 'unshod') {
     push('no shoes');
@@ -1165,7 +1187,7 @@ export function buildTunePrompt(state, combo = {}, { allowBedShoes = false, hasH
       ...(feet === 'unshod' && wearSocks ? SHOELESS_SOCKS_NEGATIVE : []),
       ...(!wearShoes ? SHOES_OFF_NEGATIVE : []),
       ...(!wearSocks ? SOCKS_OFF_NEGATIVE : []),
-      ...(legwear.length ? LEGWEAR_NEGATIVE : []),
+      ...(showLegwear && legwearTag ? LEGWEAR_NEGATIVE : []),
       ...(fullLegCover ? FULL_LEG_NEGATIVE : []),
       ...(modest ? MODESTY_NEGATIVE : []),
       // 任何坐/躺/趴姿势都加「防悬空」负向词：反重力、僵硬、无表面支撑。

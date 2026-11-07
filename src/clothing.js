@@ -710,40 +710,6 @@ export function clothingTerms(state) {
   return terms;
 }
 
-// 只取「袜子」这一件的词。
-// 微调页不描述整套服装（交给参考图），但袜子必须显式点名：不写的话模型会按自己的
-// 习惯把腿画光 —— 实测全身像 4 张里丢了 3 张白丝，就是因为提示词里一个字都没提。
-export function legwearTerms(state) {
-  const piece = coercePiece('socks', state.socks);
-  if (isEmptySkeleton('socks', piece.skeleton)) return [];
-  const style = findStyle('socks', piece.style);
-  if (!style || !style.skeletons.includes(piece.skeleton)) return [];
-  const terms = [];
-  const seen = new Set();
-  const push = (term) => {
-    for (const part of splitTerms(term)) {
-      if (!seen.has(part)) {
-        seen.add(part);
-        terms.push(part);
-      }
-    }
-  };
-  const parts = splitTerms(styleTag('socks', style, piece.skeleton));
-  const color = colorWord(piece, state);
-  if (color && parts.length) parts[0] = `${color} ${parts[0]}`;
-  for (const part of parts) push(part);
-  if (piece.detail !== '无额外细节' && detailAllowed('socks', piece, piece.detail, state)) {
-    const tag = DETAIL_TAG[piece.detail] || '';
-    if (tag) push(tag);
-  }
-  // 大腿袜（绝对领域）+ 短裙才有的绝对领域词，与 clothingTerms 保持一致。
-  if (piece.skeleton === '大腿袜（绝对领域）' && piece.style !== '连裤袜') {
-    const bottom = coercePiece('bottom', state.bottom);
-    if (['短裙', '及膝裙'].includes(bottom.skeleton)) push('zettai ryouiki');
-  }
-  return terms;
-}
-
 // ---------------- 连体装轮廓排除：别给露臂的连体款补袖子和裙摆 ----------------
 // 每个键对应一组「正向锚点 + 排除词」。正向词描述真正想要的轮廓（贴身、露臂），
 // 负向词直接点名模型爱加的那几件东西。

@@ -11,6 +11,7 @@ import { CLOTHING_SLOTS, clothingView } from './clothing.js';
 
 const FIELD_LABELS = {
   gender: '性别', age: '年龄', race: '种族', role: '角色定位', crossdressing: '特殊/伪娘',
+  tuneLegwear: '袜子', tuneLegwearColor: '袜子颜色',
   faceShape: '脸型', eyeShape: '眼型', pupil: '瞳孔', eyeColor: '瞳色', eyebrow: '眉毛', mouth: '嘴巴', nose: '鼻子',
   facialFeatures: '面部特征', skin: '肤色',
   hairLength: '长度', hairStyle: '基础造型', ahoge: '呆毛', bangs: '刘海', hairColor: '发色',
@@ -38,7 +39,7 @@ const CENTER_GROUPS = [
 ];
 
 const TUNE_GROUPS = [
-  { title: '鞋袜', fields: ['tuneShoes', 'tuneSocks'] },
+  { title: '鞋袜', fields: ['tuneShoes', 'tuneSocks', 'tuneLegwear', 'tuneLegwearColor'] },
   { title: '姿势与表情', fields: ['pose', 'handPose', 'headDirection', 'gazes', 'eyeEmotions', 'mouthStates', 'effectSymbols'] },
   { title: '手部持物', fields: ['handheld'] },
   { title: '场景构图与光影', fields: ['shot', 'camera', 'background', 'lighting', 'visualEffects', 'backgroundColor'] },

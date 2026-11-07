@@ -72,6 +72,8 @@ export function fieldVisible(field, state) {
   if (field === 'feminineAccessories') return !(state.gender === '男' && !state.crossdressing);
   // 异色瞳已经用左右两个取色器定色，单色瞳再显示一项只会互相打架。
   if (field === 'eyeColor') return state.pupil !== '异色瞳（左红右蓝等可配）';
+  // 不穿袜子时「袜子款式/颜色」没有意义。
+  if (field === 'tuneLegwear' || field === 'tuneLegwearColor') return state.tuneSocks !== false;
   return true;
 }
 
