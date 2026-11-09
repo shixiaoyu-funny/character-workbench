@@ -237,93 +237,41 @@ test('hand sheet follows the reference hand color and keeps gloves when the char
   assert.equal(realistic.positive, p.positive);
 });
 
-test('chibi: chinese proportion order leads, fixed set, character tags, no shot or background', () => {
+test('chibi follows the measured portrait-to-chibi recipe', () => {
   const s = { ...defaultState(), shot: '半身像(大腿以上)', background: '教室' };
   const p = buildPrompt(s, 'Q版形象', {});
-  // 头身比是 Q 版成败关键：中文指令必须打头，压住参考图的正常比例身体。
-  assert.ok(p.positive.startsWith(CHIBI_CN), 'chibi proportion instruction must lead the prompt');
-  assert.ok(p.positive.includes(MI_PREFIX), 'style anchors must still be present');
-  assert.ok(p.positive.includes('chibi'));
-  assert.ok(p.positive.includes('super deformed'));
-  assert.ok(p.positive.includes('(2 heads tall:1.6)'));
-  assert.ok(p.positive.includes('(2.5 heads tall:1.4)'));
-  assert.ok(p.positive.includes('(oversized head:1.5)'));
-  assert.ok(p.positive.includes('(tiny body:1.4)'));
-  assert.ok(p.positive.includes('head occupying half of the total height'));
-  assert.ok(p.positive.includes('white background'));
-  assert.ok(p.positive.includes('masterpiece'));
-  assert.ok(p.positive.includes('best quality'));
-  assert.ok(p.positive.includes('highres'));
-  assert.ok(p.positive.includes('highly detailed'));
-  assert.ok(p.positive.includes('1girl'));
-  assert.ok(p.positive.includes('twintails'));
-  assert.ok(!p.positive.includes('upper body'));
-  assert.ok(!p.positive.includes('classroom'));
-  assert.ok(!p.positive.includes('simple background'));
-  // 负向必须排掉成人/写实头身比，否则模型照抄参考图的七头身。
-  assert.ok(p.negative.startsWith(MI_NEGATIVE));
-  for (const tag of ['(realistic proportions:1.4)', '(7 heads tall:1.4)', '(8 heads tall:1.4)',
-    '(3 heads tall:1.3)', 'tall slender body', 'adult proportions', '(long legs:1.3)']) {
-    assert.ok(p.negative.includes(tag), `chibi negative must include ${tag}`);
-  }
-  assert.ok(!/图\d/.test(p.positive), 'chibi prompt must not reference images by number');
+  // 体型：配方给的是一串可验的数字，必须逐条出现
+  assert.ok(p.positive.startsWith('把参考图里的人物重画成 Q 版全身站姿立绘。'));
+  assert.ok(p.positive.includes('头（含头发，从头顶到下巴）占全身高度约 40%'));
+  assert.ok(p.positive.includes('躯干很短，仅占约 28%'));
+  assert.ok(p.positive.includes('腿很短，仅占约 32%'));
+  assert.ok(p.positive.includes('全身只有约 2.5 个头高'));
+  assert.ok(p.positive.includes('眼睛非常大，高度约占脸高的 40%'));
+  assert.ok(p.positive.includes('保留参考图的信息'));
+  // 不读表单：景别/背景/发色都不进提示词
+  assert.equal(p.positive.includes('classroom'), false);
+  assert.equal(p.positive.includes('upper body'), false);
+  assert.equal(p.positive.includes('twintails'), false);
+  // 背景由背景色选择器决定，默认纯白
+  assert.ok(p.positive.includes('背景纯白'));
   assert.equal(p.aspect, '1:1');
-});
-
-test('chibi with reference locks the face to the first image only', () => {
-  const p = buildPrompt(defaultState(), 'Q版形象', { hasReference: true });
-  assert.ok(p.positive.startsWith(CHIBI_CN), 'chibi proportion instruction must lead the prompt');
-  assert.ok(p.positive.includes(MI_PREFIX), 'style anchors must still be present');
-  // 风格图排在角色图后面，锁脸句必须点名「第 1 张」，否则模型会去抄风格图的脸与瞳色。
-  assert.ok(p.positive.includes('(same face as the first reference:1.5)'));
-  assert.ok(!p.positive.includes('oval face'));
-  assert.ok(!/图\d/.test(p.positive), 'style reference sentence must be gone from chibi prompt');
-  assert.equal(p.aspect, '1:1');
-});
-
-test('chibi declares per-image roles so the style sheet cannot donate eyes, hair or clothes', () => {
-  const p = buildPrompt(defaultState(), 'Q版形象', { hasReference: true, styleCount: 2 });
-  // 逐图分工：第 1 张是角色，第 2~3 张只给头身比与画风。
-  assert.ok(p.positive.includes('第 1 张是角色参考图'));
-  assert.ok(p.positive.includes('第 2 张到第 3 张是画风参考图'));
-  assert.ok(p.positive.includes('眼睛颜色与瞳色'));
-  assert.ok(p.positive.includes('绝对不要照抄它的眼睛颜色、瞳孔颜色、发型、发色、发饰和服装'));
-  // 正向钉住五官与服饰归属。
-  for (const tag of ['(eye color exactly as the first reference:1.6)',
-    '(same eye color as the character reference:1.5)',
-    '(same hairstyle and hair color as the character reference:1.5)',
-    '(same outfit and accessories as the character reference:1.5)']) {
-    assert.ok(p.positive.includes(tag), `chibi identity lock missing ${tag}`);
+  // 负向是中文清单：成人体型与胖脸要同时排
+  for (const word of ['成人体型', '胖脸', '六头身', '照片质感']) {
+    assert.ok(p.negative.includes(word), `chibi negative must include ${word}`);
   }
-  // 负向排掉「照搬风格图」的具体错误。
-  for (const tag of ['(wrong eye color:1.5)', 'mismatched eye color',
-    'copied eye color from the style reference', '(different outfit:1.4)']) {
-    assert.ok(p.negative.includes(tag), `chibi identity negative missing ${tag}`);
-  }
-  // 只有一张风格图时措辞收窄，不出现区间。
-  const one = buildPrompt(defaultState(), 'Q版形象', { hasReference: true, styleCount: 1 });
-  assert.ok(one.positive.includes('第 2 张是画风参考图'));
-  assert.equal(one.positive.includes('第 2 张到第 3 张'), false);
-  // 没有风格图时不逐图声明，也不塞五官归属锁。
-  const solo = buildPrompt(defaultState(), 'Q版形象', { hasReference: true });
-  assert.equal(/第 \d+ 张/.test(solo.positive), false);
-  assert.equal(solo.positive.includes('(eye color exactly as the first reference:1.6)'), false);
-  assert.equal(solo.negative.includes('(wrong eye color:1.5)'), false);
-  // 只有风格图、没有角色图时，必须说明「按文字描述来，别抄参考图里的角色」。
-  const styleOnly = buildPrompt(defaultState(), 'Q版形象', { styleCount: 2 });
-  assert.ok(styleOnly.positive.includes('参考图只是画风参考图'));
-  assert.ok(styleOnly.positive.includes('不要照抄参考图里的具体角色'));
-  assert.equal(styleOnly.positive.includes('第 1 张是角色参考图'), false);
 });
 
-test('chibi without a character image does not lock the face', () => {
-  const p = buildPrompt(defaultState(), 'Q版形象', {});
-  assert.ok(p.positive.startsWith(CHIBI_CN), 'chibi proportion instruction must lead the prompt');
-  assert.equal(p.positive.includes('(same face as reference:1.5)'), false);
-  assert.equal(p.positive.includes('(same face as the first reference:1.5)'), false);
-  assert.ok(p.positive.includes('oval face'));
-  assert.ok(p.positive.includes('light blush'));
+
+
+
+test('chibi prompt is identical with or without a reference image', () => {
+  // 配方只描述体型与画法，身份一律来自参考图；没有参考图时也不会退化成拼角色标签。
+  const withRef = buildPrompt(defaultState(), 'Q版形象', { hasReference: true });
+  const without = buildPrompt(defaultState(), 'Q版形象', {});
+  assert.equal(withRef.positive, without.positive);
+  assert.equal(withRef.negative, without.negative);
 });
+
 
 test('color scheme: main and accent sentences with preset tags', () => {
   const s = { ...defaultState(), mainColors: ['黑', '红'], accentColors: ['金'] };
@@ -922,19 +870,17 @@ test('tuneShoes and tuneSocks both off produce a fully barefoot tune', () => {
 
 // 瞳色：表单给定就把颜色钉死在文字里，参考图只负责「虹膜怎么画」。
 // 这条链路的翻车现场是「Q 版抄了风格参考图的青绿瞳」，所以断言要盯着正负两向。
-test('eye colour is pinned in text while the reference only supplies the rendering', () => {
+test('eye colour is pinned in the chibi recipe too', () => {
   const state = { ...defaultState(), eyeColor: '棕' };
-  const p = buildPrompt(state, 'Q版形象', { hasReference: true, styleCount: 2 });
-  assert.ok(p.positive.includes('brown eyes'));
+  const p = buildPrompt(state, 'Q版形象', { hasReference: true });
   assert.ok(p.positive.includes('瞳色固定为「棕」'));
-  // 锁脸时五官字段整体被剔掉，瞳色句必须仍然在，否则又回到「完全没有瞳色信息」。
-  assert.equal(p.positive.includes('oval face'), false);
-  // 青绿是实测抄错的那个颜色，必须进负向。
+  // 配置本身的瞳色句不依赖参考图；默认「跟随参考图」时不写
+  const neutral = buildPrompt(defaultState(), 'Q版形象', { hasReference: true });
+  assert.equal(neutral.positive.includes('瞳色固定为'), false);
+  // 青绿是实测抄错的那个颜色，仍要出现在负向
   assert.ok(p.negative.includes('(teal eyes:1.3)'));
-  assert.ok(p.negative.includes('(green eyes:1.3)'));
-  // 用户自己选的棕色不能被自己排掉。
-  assert.equal(p.negative.includes('(brown eyes:1.3)'), false);
 });
+
 
 test('following the reference adds neither a colour clause nor forced negatives', () => {
   const p = buildPrompt(defaultState(), 'Q版形象', { hasReference: true, styleCount: 2 });
@@ -942,13 +888,13 @@ test('following the reference adds neither a colour clause nor forced negatives'
   assert.equal(p.negative.includes('(teal eyes:1.3)'), false);
 });
 
-test('a custom eye colour is written as its own value and is never negated', () => {
+test('a custom eye colour is written as its own value in the chibi recipe', () => {
   const state = { ...defaultState(), eyeColor: '自定义', eyeColorCustom: '#8B4513' };
-  const p = buildPrompt(state, 'Q版形象', { hasReference: true, styleCount: 2 });
+  const p = buildPrompt(state, 'Q版形象', { hasReference: true });
   assert.ok(p.positive.includes('瞳色固定为「#8B4513」'));
-  assert.ok(p.positive.includes('#8B4513 eyes'));
   assert.equal(p.negative.includes('(brown eyes:1.3)'), false);
 });
+
 
 test('a green custom eye colour keeps green out of the negative list', () => {
   const state = { ...defaultState(), eyeColor: '自定义', eyeColorCustom: '#2E8B57' };
@@ -967,19 +913,19 @@ test('eye colour reaches the turnaround and the expression chart too', () => {
 });
 
 // 热门Q版：只收 1 张角色图、**不再传风格参考图**。提示词只锁「Q 版的形」，不锁任何具体角色。
-test('hot chibi locks the chibi form and reads identity from the single upload', () => {
+test('hot chibi uses the same measured recipe as the workbench chibi', () => {
   const p = buildPrompt(defaultState(), '热门Q版', { hasReference: true });
-  assert.ok(p.positive.includes('图 1 是角色参考图'));
-  assert.ok(p.positive.includes('成品只画这一个角色'));
-  // 形：头身比、大眼、短肢
-  assert.ok(p.positive.includes('(2.2 heads tall:1.5)'));
-  assert.ok(p.positive.includes('head occupying almost half of the total height'));
-  assert.ok(p.positive.includes('(huge eyes filling most of the face:1.5)'));
-  // 画法：细描边 + 柔和过渡 + 白底
-  assert.ok(p.positive.includes('thin delicate lineart'));
-  assert.ok(p.positive.includes('soft blended transitions between shades'));
+  assert.ok(p.positive.startsWith('把参考图里的人物重画成 Q 版全身站姿立绘。'));
+  assert.ok(p.positive.includes('头（含头发，从头顶到下巴）占全身高度约 40%'));
+  assert.ok(p.positive.includes('全身只有约 2.5 个头高'));
   assert.equal(p.aspect, '1:1');
+  // 两个 Q 版图种的提示词应当完全一致：差别只在输入源。
+  assert.deepEqual(
+    buildPrompt(defaultState(), 'Q版形象', { hasReference: true }).positive,
+    p.positive,
+  );
 });
+
 
 test('hot chibi never bakes a specific character into the style wording', () => {
   const p = buildPrompt(defaultState(), '热门Q版', { hasReference: true });
@@ -994,18 +940,16 @@ test('hot chibi never bakes a specific character into the style wording', () => 
   assert.equal(p.positive.includes('图 2'), false);
 });
 
-test('hot chibi negates heavy rendering and a second character', () => {
+test('hot chibi keeps the eye colour clause and the multi-person negatives', () => {
   const p = buildPrompt({ ...defaultState(), eyeColor: '棕' }, '热门Q版', { hasReference: true });
   assert.ok(p.positive.includes('瞳色固定为「棕」'));
-  assert.ok(p.negative.includes('(thick black outlines:1.5)'));
-  assert.ok(p.negative.includes('(harsh shadows:1.4)'));
-  assert.ok(p.negative.includes('(3d render:1.5)'));
-  assert.ok(p.negative.includes('(two characters:1.5)'));
+  assert.ok(p.negative.includes('多人'));
+  assert.ok(p.negative.includes('成人体型'));
 });
 
-// 出图背景色：白/黑/绿/蓝/自定义。绿是给抠图用的 chroma key 绿幕。
 test('a non-white sheet background rewrites every hardcoded white background', () => {
-  for (const kind of ['基准立绘', '三视图', 'Q版形象', '服饰拆解图']) {
+  // Q 版自己写背景（chibiBackdropSentence），不在这个循环里。
+  for (const kind of ['基准立绘', '三视图', '服饰拆解图']) {
     const p = buildPrompt({ ...defaultState(), sheetBg: '黑' }, kind, { hasReference: true, styleCount: 0 });
     assert.equal(p.positive.includes('white background'), false, kind);
     assert.equal(p.positive.includes('纯白背景'), false, kind);
@@ -1018,10 +962,14 @@ test('a non-white sheet background rewrites every hardcoded white background', (
 });
 
 test('green background is written as a chroma key backdrop', () => {
-  const p = buildPrompt({ ...defaultState(), sheetBg: '绿' }, 'Q版形象', { hasReference: true, styleCount: 2 });
-  assert.ok(p.positive.includes('chroma key green background'));
-  assert.ok(p.positive.startsWith('背景色为纯绿。'));
+  const sheet = buildPrompt({ ...defaultState(), sheetBg: '绿' }, '三视图', { hasReference: true });
+  assert.ok(sheet.positive.includes('chroma key green background'));
+  assert.ok(sheet.positive.startsWith('背景色为纯绿。'));
+  // Q 版自己写背景句：绿 = #00B140 绿幕
+  const chibi = buildPrompt({ ...defaultState(), sheetBg: '绿' }, 'Q版形象', { hasReference: true });
+  assert.ok(chibi.positive.includes('背景纯绿幕（#00B140）'));
 });
+
 
 test('a custom background colour is written as its own value', () => {
   const p = buildPrompt({ ...defaultState(), sheetBg: '自定义', sheetBgCustom: '#ff8800' }, '基准立绘', {});

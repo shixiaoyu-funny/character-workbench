@@ -1411,9 +1411,7 @@ test('the full suite generates the four follow-up kinds referencing the base', a
   const tasks = scriptedTasks();
   const { document } = setup(t, { gallery, fetcher, taskServer: tasks, pollMs: 1 });
   buttonByText(document, '生成完整设定集').click();
-  // 套图构建阶段只发一次 /api/chibi-style（Q版风格图），回传空列表即可。
-  await waitFor(() => queue.some((job) => job.url === '/api/chibi-style'));
-  await respondNext(queue, { images: [] });
+  // 风格参考图机制已停用：套图构建阶段不再请求 /api/chibi-style，直接等任务提交。
   await waitFor(() => tasks.submissions.length === 1);
   const steps = tasks.submissions[0].steps;
   assert.deepEqual(steps.map((step) => step.kind), ['三视图', 'Q版形象', '表情差分图', '服饰拆解图']);

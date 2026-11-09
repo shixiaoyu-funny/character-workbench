@@ -271,20 +271,12 @@ async function buildStep({
   const plan = planShot({ kind, snapshot, randomSeed, used, maxReferences: chosen.maxReferences });
   let refs = plan.referenceImages.map((value) => toRef(value, transform));
   const charCount = refs.length;
-  let styleCount = 0;
-  // 只有「Q版形象」吃风格参考图；「热门Q版」的画风完全由提示词描述，不再传图。
-  if (kind === 'Q版形象') {
-    const data = await fetcher('/api/chibi-style', { method: 'GET' });
-    const styles = data && Array.isArray(data.images) ? data.images.filter(Boolean) : [];
-    // 风格图只作为多图输入。参考图上限随模型变：qwen-image-3.0 是 3 张，其余到 10 张。
-    // 锁脸基准排在风格图前面，名额不够时先丢掉后面的风格图。
-    const room = Math.max(0, chosen.maxReferences - refs.length);
-    const picked = styles.slice(0, room);
-    styleCount = picked.length;
-    refs = [...refs, ...picked.map(literal)];
-  }
+  // Q 版只喂 1 张参考图：实测多图会互相「平均」，正比图会把 Q 版比例压回去。
+  // 风格参考图机制已停用（/api/chibi-style 保留但不再调用）。
+  const styleCount = 0;
   // 基准立绘本身用当前表单生成（它才是新角色的来源）；其余后续图优先用锁定基准保存的配置。
   const isBase = kind === '基准立绘';
+  const isChibiKind = kind === 'Q版形象' || kind === '热门Q版';
   const locked = isBase ? null : lockedCharacterState(snapshot, kind);
   // 瞳色是「我现在要的颜色」，不是「基准图当年配的色」：永远取当前表单，
   // 否则老基准的 state 里没有这个字段，用户改了瞳色后续图也吃不到。
@@ -301,7 +293,7 @@ async function buildStep({
       negativePrompt: built.negative,
       aspectRatio: built.aspect,
       seed: plan.seed,
-      resolution: '1k',
+      resolution: isChibiKind ? '2k' : '1k',
       kind,
       batchId,
       base,

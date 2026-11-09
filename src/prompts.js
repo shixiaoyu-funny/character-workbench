@@ -29,118 +29,57 @@ const EXPRESSION_PRESET = [
   '(blushing:1.2)', '(smug:1.2)', '(sad:1.2)', '(winking:1.2)', '(expressionless:1.2)',
 ];
 
-// ---------------- Q 版（chibi）：头身比是成败关键 ----------------
-// 参考图是一张正常比例（约 7 头身）的全身立绘，模型会本能照抄它的身材：
-// 只写一个 "chibi" 经常完全无效，出图仍是七头身的普通立绘（实测）。
-// 头身比按示例风格参考图定标：**二头身**（头部几乎占全身一半），不是常见的 3 头身"萌系"。
-// 所以这里用三层夹住：
-//   ① 中文主指令（千问对中文指令遵循度最高）把 2~2.5 头身、头部占比说成数字；
-//   ② 英文头身比锁 + 大头小身等形态词，重复声明；
-//   ③ 负向排掉成人/写实比例，也排掉 3 头身以上的「偏高」比例。
-// 另加一句「参考图只取长相」，把参考图从「身材模板」降级为「身份来源」。
-const CHIBI_COMPOSITION = '把角色重画成 Q 版（chibi）：头身比约 2 头身（最多不超过 2.5 头身），'
-  + '整个身子加起来只比头略高一点，头部约占全身高度的一半，身子只有一个多头高；'
-  + '大头小身、短手短腿、手脚圆润简化、五官集中在大脸上、眼睛占脸的三分之一；'
-  + '不要照抄参考图里的真实身材比例与身高。';
-const CHIBI_PROPORTION_LOCKS = [
-  '(chibi proportions:1.6)', '(2 heads tall:1.6)', '(2.5 heads tall:1.4)',
-  '(oversized head:1.5)', '(tiny body:1.4)', 'head as tall as the body',
-  'huge head in proportion to a small body', 'head occupying half of the total height',
-  'short stubby limbs', 'chibi hands', 'small rounded hands', 'simplified anatomy',
-  'flat color shading, thick clean outlines',
-];
-const CHIBI_NEGATIVE = [
-  '(realistic proportions:1.4)', '(normal body proportions:1.4)',
-  '(7 heads tall:1.4)', '(8 heads tall:1.4)', 'teenage proportions',
-  '(3 heads tall:1.3)', '(4 heads tall:1.3)', '(5 heads tall:1.3)',
-  'tall slender body', '(long legs:1.3)', 'adult proportions', 'mature figure',
-  'realistic anatomy', 'detailed muscular anatomy', 'long neck',
-];
+// ---------------- Q 版：正比立绘 → 2.5 头身 Q 版（实测配方） ----------------
+// 全部数值来自实测（E:\图片\AI_Assets\正比转Q版.txt，2026-11-09）：
+// 头（含头发）占全身 ~40%、躯干 ~28%、腿 ~32%、全身约 2.5 头身、眼高占脸 ~40%。
+// 三条硬经验：
+//   ① 只喂 1 张参考图 —— 多图会互相平均，正比图把 Q 版比例压回去；
+//   ② 比例必须写成**数字**，中文描述「头要大」模型不当回事；
+//   ③ 负向要同时排「成人体型」和「胖脸/大脸」—— 一头压下去另一头容易鼓起来。
+const CHIBI_PORTRAIT_POSITIVE = [
+  '把参考图里的人物重画成 Q 版全身站姿立绘。',
+  '【体型必须重画，不要照搬参考图的比例】',
+  '· 头（含头发，从头顶到下巴）占全身高度约 40%，头要画大；',
+  '· 躯干很短，仅占约 28%；腿很短，仅占约 32%，两条腿并拢、脚挨在一起；',
+  '· 全身只有约 2.5 个头高；手臂短，手垂在胯部上方；脖子几乎看不见；',
+  '· 眼睛非常大，高度约占脸高的 40%，眼位偏下。',
+  '【脸型】圆润的椭圆：两侧脸颊微微圆一点点，脸颊有柔和的软肉感，下颌柔和收进去；但不要变成胖脸，脸不能宽、不能短。',
+  '【保留参考图的信息】发型、发色渐变、瞳色、肤色、五官特征；服装的款式、层次、配色、配饰、鞋。',
+  '画风：Q 版动漫，干净线稿，cel 着色，柔和均匀布光，高细节。',
+].join('\n');
 
-// ---------------- Q 版：参考图分工（瞳色/发型/服饰必须来自角色图）----------------
-// Q 版会同时吃「角色基准图」和「风格参考图」两张以上。模型默认把后面的风格图当主体模板，
-// 会把风格图里的瞳色、发型、发饰、衣服整套照搬（实测：生成出来的 Q 版直接用了风格参考图
-// 的蓝绿瞳，而角色本身不是这个瞳色）。所以必须逐图声明用途，并在正负向两头钉住五官归属：
-// 风格图只准贡献「头身比、脸型轮廓、上色画风」，其余一律以第 1 张角色图为准。
-function chibiRoleClause(styleCount, hasReference) {
-  if (!styleCount) {
-    return hasReference
-      ? '参考图只提供角色的长相、五官、发型发色、头饰、服装与配色；Q 版头身比与画风按下面的指令来。'
-      : '';
+const CHIBI_PORTRAIT_NEGATIVE = '照搬参考图的比例，六头身，五头身，四头身，成人体型，长腿，细长腿，筷子腿，大腿缝，'
+  + '长手臂，长躯干，腰很细，模特比例，脖子很长，小头，头太小，'
+  + '胖脸，大脸，婴儿肥，两腮鼓起，脸变宽，脸变短，写实风，照片质感，'
+  + '多人，半身，裁切，文字，水印，模糊，背景杂物，复杂背景，渐变背景';
+
+// 背景：配方原文写死「纯蓝幕 #0000FF」，这里改成跟随页面上的背景色选择器（选蓝仍是 #0000FF）。
+// 选绿给抠图用，色值与桌宠流水线一致（#00B140）。
+function chibiBackdropSentence(state) {
+  const head = '构图：正方形 1:1，全身完整入镜、水平居中，四周留白充足；';
+  const pick = state.sheetBg || '白';
+  if (pick === '蓝') return `${head}背景纯蓝幕（#0000FF），均匀平整、无渐变无阴影。`;
+  if (pick === '绿') return `${head}背景纯绿幕（#00B140），均匀平整、无渐变无阴影。`;
+  if (pick === '黑') return `${head}背景纯黑，均匀平整、无渐变无阴影。`;
+  if (pick === '自定义') {
+    const hex = String(state.sheetBgCustom || '').trim() || '#ffffff';
+    return `${head}背景纯色（${hex}），均匀平整、无渐变无阴影。`;
   }
-  const span = styleCount > 1 ? `第 2 张到第 ${styleCount + 1} 张` : '第 2 张';
-  if (!hasReference) {
-    return '参考图只是画风参考图，只用来参考 Q 版头身比、脸型轮廓与上色画风；'
-      + '角色的长相、五官、发型发色、头饰、服装与配色按下面的文字描述来，不要照抄参考图里的具体角色。';
-  }
-  return '参考图分工：第 1 张是角色参考图，角色的长相、眼睛颜色与瞳色、发型发色、头饰、服装与配色'
-    + `全部以它为准；${span}是画风参考图，只用来参考 Q 版头身比、脸型轮廓与上色画风，`
-    + '绝对不要照抄它的眼睛颜色、瞳孔颜色、发型、发色、发饰和服装。';
+  return `${head}背景纯白，均匀平整、无渐变无阴影。`;
 }
 
-// 五官与服饰归属锁：只在真有角色参考图时生效（没有参考图时这些词无意义）。
-const CHIBI_IDENTITY_LOCKS = [
-  '(eye color exactly as the first reference:1.6)',
-  '(same eye color as the character reference:1.5)',
-  '(same hairstyle and hair color as the character reference:1.5)',
-  '(same outfit and accessories as the character reference:1.5)',
-];
-
-const CHIBI_IDENTITY_NEGATIVE = [
-  '(wrong eye color:1.5)', '(different eye color from the character:1.5)',
-  'mismatched eye color', 'copied eye color from the style reference',
-  '(different hair color:1.4)', '(different hairstyle:1.4)',
-  '(different outfit:1.4)', '(different accessories:1.3)',
-];
-
-// Q 版锁脸句要指明「第 1 张」：风格图排在后面，写成 reference 会让模型去抄风格图的脸与瞳色。
-const CHIBI_LOCK_SENTENCE = '(same face as the first reference:1.5)';
-
-// ---------------- 热门Q版：用户上传正比图，直接出 Q 版 ----------------
-// 与「Q版形象」的区别只在输入源：那边是锁定的基准立绘 + 全部风格图，
-// 这边是用户现场传的 1~2 张正比立绘 + 固定 1 张风格图。
-// 身份全部来自正比图，所以提示词里不拼任何角色标签（tagSequence 为空）。
-// 只收 1 张角色图，且**不再传风格参考图**：画风由 HOT_CHIBI_* 那组文字描述。
-// 「成品只画一个角色」必须写死：用户很可能传一张双人截图，模型会忠实地把两个人都画出来。
-function hotChibiRoleClause() {
-  return '图 1 是角色参考图，角色的长相、五官、眼睛颜色、发型与发色、服装与配色全部以它为准；'
-    + '成品只画这一个角色，图 1 里如果还有别的角色，一律不要画进成品。'
-    + '头身比、线条与上色方式按下面的 Q 版指令来。';
+function chibiPortraitPrompt(state) {
+  const parts = [CHIBI_PORTRAIT_POSITIVE, chibiBackdropSentence(state)];
+  // 用户显式钉了瞳色才追加：配方本身是「保留参考图的瞳色」，多说一句更稳。
+  const eye = eyeColorClause(state);
+  if (eye) parts.push(eye);
+  const eyeNeg = eyeColorNegative(state).join('，');
+  return {
+    positive: parts.join('\n'),
+    negative: eyeNeg ? `${CHIBI_PORTRAIT_NEGATIVE}，${eyeNeg}` : CHIBI_PORTRAIT_NEGATIVE,
+    aspect: '1:1',
+  };
 }
-
-
-// ---------------- 热门Q版：只锁「Q 版的形」，不锁角色 ----------------
-// 发色、瞳色、发型、服装、配饰全部来自上传图；这里只描述 Q 版这个「形」怎么画。
-// 归纳自交付样张的通用特征（不是那只粉色双马尾）：
-//   约 2.2 头身、头占全高近一半、短手短脚、眼睛几乎占满脸、高光很亮；
-//   细而干净的描边（线色比固有色深一点，不是纯黑）、cel 上色但过渡柔和、
-//   几乎无硬阴影、纯白背景、正面全身站立。
-const HOT_CHIBI_FORM_LOCKS = [
-  '(chibi proportions:1.6)', '(2.2 heads tall:1.5)', '(2.5 heads tall:1.4)',
-  '(oversized head:1.6)', '(tiny body:1.5)',
-  'head occupying almost half of the total height',
-  'short stubby limbs', 'chibi hands', 'small rounded hands', 'simplified anatomy',
-  '(huge eyes filling most of the face:1.5)',
-  '(bright white highlights inside the eyes:1.4)',
-  'clear upper eyelashes', 'soft blush on the cheeks',
-  'full body, standing, facing the viewer, arms relaxed at the sides, both feet flat on the ground',
-];
-
-const HOT_CHIBI_RENDER_LOCKS = [
-  'clean anime illustration', 'cel shading',
-  '(thin delicate lineart, outline color slightly darker than the fill instead of pure black:1.5)',
-  'soft blended transitions between shades',
-  'glossy hair with a few fine strands',
-  '(soft even lighting, no harsh cast shadow:1.3)',
-  'pure white background, no shadow on the ground',
-];
-
-// 与「形」相反的画法：厚涂硬边、纯黑粗描边、高对比、写实/3D 都不是这个图种要的。
-const HOT_CHIBI_RENDER_NEGATIVE = [
-  '(thick black outlines:1.5)', '(harsh shadows:1.4)', '(high contrast:1.3)',
-  '(dark shading:1.3)', '(heavy impasto painting:1.4)',
-  '(photorealistic:1.4)', '(3d render:1.5)', '(pixel art:1.2)', '(sketch:1.2)',
-];
 
 const FIXED = {
   基准立绘: [
@@ -157,10 +96,6 @@ const FIXED = {
     'portrait', 'upper body', 'highly detailed faces',
     ...EXPRESSION_PRESET, ...QUALITY_TAGS,
   ],
-  Q版形象: [
-    'chibi', 'super deformed', 'cute', 'full body', 'standing',
-    'white background', ...QUALITY_TAGS,
-  ],
   // 热门Q版：身份全部来自用户上传的正比图，提示词只描述「画成 Q 版」这件事。
   热门Q版: [
     'chibi', 'super deformed', 'cute', 'full body', 'standing',
@@ -175,13 +110,6 @@ const NEGATIVE = {
     'full body', 'nude', 'naked', 'blurry', 'watermark', 'merged cells', 'messy layout',
     ...UNIVERSAL_NEGATIVE,
   ],
-  Q版形象: [...CHIBI_NEGATIVE, 'tall', 'slim waist', 'adult body'],
-  热门Q版: [...CHIBI_NEGATIVE, 'tall', 'slim waist', 'adult body',
-    // 正比原图多半带背景与特效，Q 版必须是干净白底立绘。
-    '(complex background:1.3)', '(scenery:1.2)', '(text:1.3)', '(watermark:1.4)',
-    // 用户很可能传双人截图，模型会照着画两个人；把「多角色」显式排掉。
-    '(two characters:1.5)', '(second person:1.5)', '(background characters:1.4)',
-    '(group:1.3)', '(different faces:1.4)'],
 };
 
 // 单一生成风格：二次元风格（赛璐璐平涂，米哈游风）。写实风已删除。
@@ -579,7 +507,10 @@ function withSheetBackground(built, state) {
 }
 
 export function buildPrompt(state, kind, opts = {}) {
-  return withSheetBackground(buildPromptCore(state, kind, opts), state);
+  const built = buildPromptCore(state, kind, opts);
+  // 两个 Q 版图种的背景由 chibiBackdropSentence 自己写死，不再走外层白底改写。
+  if (kind === 'Q版形象' || kind === '热门Q版') return built;
+  return withSheetBackground(built, state);
 }
 
 function buildPromptCore(state, kind, { hasReference = false, styleCount = 0, charCount = 0 } = {}) {
@@ -628,79 +559,12 @@ function buildPromptCore(state, kind, { hasReference = false, styleCount = 0, ch
       aspect: state.baseAspect,
     };
   }
-  // Q 版：中文头身比指令打头，压住参考图里正常比例立绘的身体，再接风格、锁脸与形态词。
-  // 参考图分工声明紧跟其后：Q 版会同时吃角色图和风格图，必须逐图说明用途，
-  // 否则模型会把风格图的瞳色/发型/衣服整套照搬（实测发生过）。
-  if (kind === 'Q版形象') {
-    const chibiCollected = collect(state, tagSequence(kind, state), { skipFace: hasReference });
-    const chibiStyle = styleOf(state);
-    const chibiParts = [];
-    const chibiSeen = new Set();
-    const pushChibi = (value) => {
-      if (value && !chibiSeen.has(value)) {
-        chibiSeen.add(value);
-        chibiParts.push(value);
-      }
-    };
-    pushChibi(CHIBI_COMPOSITION);
-    pushChibi(chibiRoleClause(styleCount, hasReference));
-    // 身份词要排在风格锚点之前：风格锚点里的 big/detailed/glossy eyes 会盖过身份锁，
-    // 让模型觉得「眼睛画得漂亮就行」，于是顺手抄了风格图的瞳色。
-    if (hasReference) pushChibi(CHIBI_LOCK_SENTENCE);
-    // 瞳色：表单给定就写死颜色，风格图只许贡献画法。这一句必须排在风格锚点之前。
-    pushChibi(eyeColorClause(state));
-    // 五官归属锁只用来挡「风格图抢走瞳色/发型/服饰」，没有风格图时不需要。
-    if (hasReference && styleCount > 0) {
-      for (const tag of CHIBI_IDENTITY_LOCKS) pushChibi(tag);
-    }
-    for (const tag of chibiStyle.positive) pushChibi(tag);
-    for (const tag of CHIBI_PROPORTION_LOCKS) pushChibi(tag);
-    for (const tag of FIXED[kind] || []) pushChibi(tag);
-    for (const tag of chibiCollected) pushChibi(tag);
-    // 连体装轮廓排除：体操服/泳装这类款式不许补袖套与裙摆（Q 版同样会加）。
-    const chibiShape = clothingExclusions(state);
-    for (const tag of chibiShape.positive) pushChibi(tag);
-    return {
-      positive: chibiParts.join(', '),
-      negative: [...new Set([
-        ...chibiStyle.negative,
-        ...(NEGATIVE[kind] || []),
-        // 有角色参考图时，把「抄了风格图的五官/衣服」这类错误显式排掉。
-        ...(hasReference && styleCount > 0 ? CHIBI_IDENTITY_NEGATIVE : []),
-        ...eyeColorNegative(state),
-        ...chibiShape.negative,
-      ])].join(', '),
-      aspect: '1:1',
-    };
-  }
-  // 热门Q版：身份 100% 来自上传的正比图，所以只拼「Q 版怎么画」相关的段落，
-  // 一个角色标签都不加（脸、发、衣服、瞳色全交给图 1、图 2）。
-  if (kind === '热门Q版') {
-    const hotParts = [];
-    const hotSeen = new Set();
-    const pushHot = (value) => {
-      if (value && !hotSeen.has(value)) {
-        hotSeen.add(value);
-        hotParts.push(value);
-      }
-    };
-    pushHot(CHIBI_COMPOSITION);
-    pushHot(hotChibiRoleClause());
-    if (hasReference) pushHot(CHIBI_LOCK_SENTENCE);
-    pushHot(eyeColorClause(state));
-    // 只给「形」与「画法」：这个图种不吃风格参考图，也不吃 global style 的厚涂字样。
-    for (const tag of HOT_CHIBI_FORM_LOCKS) pushHot(tag);
-    for (const tag of HOT_CHIBI_RENDER_LOCKS) pushHot(tag);
-    for (const tag of FIXED[kind] || []) pushHot(tag);
-    return {
-      positive: hotParts.join(', '),
-      negative: [...new Set([
-        ...HOT_CHIBI_RENDER_NEGATIVE,
-        ...(NEGATIVE[kind] || []),
-        ...eyeColorNegative(state),
-      ])].join(', '),
-      aspect: '1:1',
-    };
+  // Q 版（Q版形象 / 热门Q版）：照搬实测配方「正比立绘 → 2.5 头身 Q 版」。
+  // 那份配方的核心结论：一次喂多张参考图会互相「平均」，正比图会把 Q 版比例压回去，
+  // 所以只传 1 张参考图（Q版形象 = 锁定基准立绘；热门Q版 = 用户上传的正比图）。
+  // 出处：E:\图片\AI_Assets\正比转Q版.txt（2026-11-09 验证；qwen-image-3.0 / 2k / prompt_extend=False）
+  if (kind === 'Q版形象' || kind === '热门Q版') {
+    return chibiPortraitPrompt(state);
   }
   const collected = collect(state, tagSequence(kind, state), { skipFace: hasReference });
   const style = styleOf(state);

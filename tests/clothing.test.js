@@ -230,10 +230,11 @@ test('leotard forbids invented sleeves and half skirt', () => {
   for (const tag of shape.negative) assert.ok(p.negative.includes(tag), `negative should carry ${tag}`);
   // 裙子/袖子这类词只出现在负向，正向不能把裙摆写回来。
   assert.equal(p.positive.includes('overskirt'), false);
-  // 三视图与 Q 版同样吃这套排除词，表情差分图不吃（它不描述服装）。
+  // 三视图吃这套排除词；表情差分图不吃（它不描述服装）。
   assert.ok(buildPrompt(leotard(), '三视图').negative.includes('(half skirt:1.4)'));
-  assert.ok(buildPrompt(leotard(), 'Q版形象').negative.includes('(half skirt:1.4)'));
   assert.equal(buildPrompt(leotard(), '表情差分图').negative.includes('(half skirt:1.4)'), false);
+  // Q 版改走实测配方后不再拼服装标签（服装由参考图决定，配方自己也写了「保留参考图的信息」）。
+  assert.equal(buildPrompt(leotard(), 'Q版形象').negative.includes('(half skirt:1.4)'), false);
 });
 
 test('outerwear cancels the silhouette exclusions it would conflict with', () => {

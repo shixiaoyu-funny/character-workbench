@@ -63,7 +63,8 @@ function kindOf(prompt) {
   if (prompt.includes('clothing parts breakdown')) return '服饰拆解图';
   if (prompt.includes('expression chart')) return '表情差分图';
   if (prompt.includes('multiple views')) return '三视图';
-  if (prompt.includes('chibi')) return 'Q版形象';
+  // 新的 Q 版提示词是中文实测配方，不再带 'chibi' 这个英文词。
+  if (prompt.includes('占全身高度约 40%')) return 'Q版形象';
   if (prompt.includes('character design')) return '基准立绘';
   return '';
 }
@@ -486,7 +487,7 @@ test('hand breakdown without a selected pair refuses to start', async () => {
   assert.equal(streamCalls.length, 0);
 });
 
-test('every kind requests 1k', async () => {
+test('only the chibi kinds request 2k', async () => {
   const gallery = createGallery();
   const { streamCalls, fetcher, streamFetcher } = recording();
   await generateKind({
@@ -511,10 +512,11 @@ test('every kind requests 1k', async () => {
     streamFetcher: chibiStream,
     randomSeed: sequence(1),
   });
-  assert.equal(jobsOf(chibiCalls2)[0].resolution, '1k');
+  // Q 版按实测配方走 2k（配方原文 resolution=2k，千问 1K/2K 同价）。
+  assert.equal(jobsOf(chibiCalls2)[0].resolution, '2k');
 });
 
-test('chibi appends the style images after the character image', async () => {
+test('chibi sends only the locked base and never fetches style images', async () => {
   const gallery = createGallery();
   lockBase(gallery, 42, BASE);
   const { fetcherCalls, streamCalls, fetcher, streamFetcher } = recording({ styleImages: [STYLE, STYLE2] });
@@ -529,21 +531,16 @@ test('chibi appends the style images after the character image', async () => {
       throw new Error('should reuse the base seed');
     },
   });
-  assert.equal(chibiCalls(fetcherCalls).length, 1);
+  // 实测配方：只喂 1 张参考图，多图会互相平均把比例压回去。
+  assert.equal(chibiCalls(fetcherCalls).length, 0);
   const job = jobsOf(streamCalls)[0];
   assert.equal(job.seed, 42);
-  assert.deepEqual(job.referenceImages, [BASE, STYLE, STYLE2]);
-  assert.equal(job.prompt.includes(CHIBI_LOCK), true);
-  // 两张风格图时，逐图声明必须点名「第 2 张到第 3 张」，并禁止照抄瞳色/发型/服饰。
-  assert.equal(job.prompt.includes('第 1 张是角色参考图'), true);
-  assert.equal(job.prompt.includes('第 2 张到第 3 张是画风参考图'), true);
-  assert.equal(job.prompt.includes('(eye color exactly as the first reference:1.6)'), true);
-  assert.equal(/图\d/.test(job.prompt), false, 'style sentence must not leak into prompt');
-  assert.equal(kindOf(job.prompt), 'Q版形象');
-  // Q 版固定用千问：单张生成由 modelForGenerate('Q版形象') 指定。
+  assert.deepEqual(job.referenceImages, [BASE]);
+  assert.ok(job.prompt.includes('占全身高度约 40%'));
   assert.equal(job.model, CHIBI_IMAGE_MODEL);
-  assert.equal(modelForGenerate('Q版形象'), 'qwen-image-3.0');
+  assert.equal(job.resolution, '2k');
 });
+
 
 test('model routing keeps chibi on qwen and the rest on the suite model', () => {
   assert.equal(modelForGenerate('基准立绘'), BASE_IMAGE_MODEL);
@@ -557,70 +554,8 @@ test('model routing keeps chibi on qwen and the rest on the suite model', () => 
   assert.equal(TUNE_IMAGE_MODEL, 'gemini-3-pro-image-c');
 });
 
-test('chibi can send the style images alone when there is no character image', async () => {
-  const gallery = createGallery();
-  const { streamCalls, fetcher, streamFetcher } = recording({ styleImages: [STYLE, STYLE2] });
-  await generateKind({
-    kind: 'Q版形象',
-    state: defaultState(),
-    gallery,
-    images: { reference: null },
-    fetcher,
-    streamFetcher,
-    randomSeed: sequence(8),
-  });
-  const job = jobsOf(streamCalls)[0];
-  assert.equal(job.seed, 8);
-  assert.deepEqual(job.referenceImages, [STYLE, STYLE2]);
-  assert.equal(/图\d/.test(job.prompt), false, 'style sentence must not leak into prompt');
-  assert.equal(job.prompt.includes(LOCK), false);
-  assert.equal(job.prompt.includes('oval face'), true);
-});
 
-test('chibi caps reference images at three for qwen-image-3.0', async () => {
-  const gallery = createGallery();
-  lockBase(gallery, 42, BASE);
-  const { streamCalls, fetcher, streamFetcher } = recording({
-    styleImages: [STYLE, STYLE2, 'data:image/png;base64,S3', 'data:image/png;base64,S4', 'data:image/png;base64,S5'],
-  });
-  await generateKind({
-    kind: 'Q版形象',
-    state: defaultState(),
-    gallery,
-    images: { reference: null },
-    fetcher,
-    streamFetcher,
-    randomSeed: () => {
-      throw new Error('should reuse the base seed');
-    },
-  });
-  const job = jobsOf(streamCalls)[0];
-  assert.equal(job.seed, 42);
-  assert.deepEqual(job.referenceImages, [BASE, STYLE, STYLE2]);
-  assert.equal(job.model, 'qwen-image-3.0');
-});
 
-test('a wider model keeps more chibi style references and records its id', async () => {
-  const gallery = createGallery();
-  lockBase(gallery, 42, BASE);
-  const extra = ['data:image/png;base64,S3', 'data:image/png;base64,S4', 'data:image/png;base64,S5'];
-  const { streamCalls, fetcher, streamFetcher } = recording({
-    styleImages: [STYLE, STYLE2, ...extra],
-  });
-  await generateKind({
-    kind: 'Q版形象',
-    model: 'qwen-image-2.1-pro',
-    state: defaultState(),
-    gallery,
-    images: { reference: null },
-    fetcher,
-    streamFetcher,
-    randomSeed: () => 1,
-  });
-  const job = jobsOf(streamCalls)[0];
-  assert.equal(job.model, 'qwen-image-2.1-pro');
-  assert.deepEqual(job.referenceImages, [BASE, STYLE, STYLE2, ...extra]);
-});
 
 test('a base-portrait batch keeps the upload captured when the click starts', async () => {
   const gallery = createGallery();
@@ -692,10 +627,10 @@ test('chibi without a style image sends only the character reference', async () 
   const job = jobsOf(streamCalls)[0];
   assert.equal(job.seed, 9);
   assert.deepEqual(job.referenceImages, [UPLOAD]);
-  assert.equal(job.prompt.includes(CHIBI_LOCK), true);
-  // 没有风格图时不能有逐图分工声明。
+  // 配方只描述体型与画法，不再拼英文锁脸句与逐图分工。
   assert.equal(/第 \d+ 张/.test(job.prompt), false);
   assert.equal(/图\d/.test(job.prompt), false, 'style sentence must not leak into prompt');
+  assert.ok(job.prompt.includes('把参考图里的人物重画成 Q 版全身站姿立绘。'));
 });
 
 test('a failed request does not store a partial batch', async () => {
@@ -738,13 +673,14 @@ test('a suite generates the four follow-up kinds referencing the locked base', a
   assert.equal(jobs[2].seed, 42);
   assert.equal(jobs[3].seed, 42);
   assert.deepEqual(jobs[0].referenceImages, [BASE]);
-  assert.deepEqual(jobs[1].referenceImages, [BASE, STYLE]);
+  assert.deepEqual(jobs[1].referenceImages, [BASE]);
   assert.deepEqual(jobs[2].referenceImages, [BASE]);
   assert.deepEqual(jobs[3].referenceImages, [BASE, PNG]);
   assert.equal(jobs[2].prompt.includes(LOCK), true);
   assert.equal(jobs[3].prompt.includes(LOCK), false);
   assert.equal(jobs[3].prompt.includes('each garment and accessory appears only once'), true);
-  assert.equal(chibiCalls(fetcherCalls).length, 1);
+  // 风格参考图机制已停用：套图里也不再请求 /api/chibi-style。
+  assert.equal(chibiCalls(fetcherCalls).length, 0);
   const batch = gallery.batches()[1];
   assert.equal(batch.items.length, 4);
   assert.deepEqual(batch.items.map((entry) => entry.kind),
@@ -773,10 +709,11 @@ test('a suite uses the locked base character state, not the current form', async
   });
   const jobs = jobsOf(streamCalls);
   assert.equal(jobs.length, 4);
-  // 三视图/Q版/表情都该用基准保存的发色（金），而不是表单里的黑。
-  for (const job of jobs.slice(0, 3)) {
-    assert.match(job.prompt, /blonde hair/);
-    assert.doesNotMatch(job.prompt, /black hair/);
+  // 三视图/表情都该用基准保存的发色（金），而不是表单里的黑。
+  // Q 版不再拼角色标签（身份交给参考图），所以只查这两张。
+  for (const index of [0, 2]) {
+    assert.match(jobs[index].prompt, /blonde hair/);
+    assert.doesNotMatch(jobs[index].prompt, /black hair/);
   }
 });
 
@@ -834,7 +771,8 @@ test('a suite can generate multiple sets and each records the same locked base',
   });
   const jobs = jobsOf(streamCalls);
   assert.equal(jobs.length, 8);
-  assert.equal(chibiCalls(fetcherCalls).length, 2);
+  // 风格参考图已停用：两套也不该请求 /api/chibi-style。
+  assert.equal(chibiCalls(fetcherCalls).length, 0);
   const added = gallery.batches().slice(1);
   assert.equal(added.length, 2);
   for (const batch of added) {
@@ -951,8 +889,8 @@ test('the current eye colour wins over the locked base snapshot', async () => {
     randomSeed: sequence(3),
   });
   const job = jobsOf(streamCalls)[0];
-  assert.ok(job.prompt.includes('brown eyes'), 'current eye colour must reach the prompt');
-  assert.ok(job.prompt.includes('瞳色固定为「棕」'));
+  // 新配方不拼英文「brown eyes」，瞳色靠中文句子钉住。
+  assert.ok(job.prompt.includes('瞳色固定为「棕」'), 'current eye colour must reach the prompt');
 });
 
 // 热门Q版：只传那 1 张角色图，风格参考图彻底不传；张数走 baseCount。
@@ -976,7 +914,7 @@ test('hot chibi sends only the uploaded sheet and no style reference', async () 
   // 风格图一张都不许进来：画风全在提示词里。
   assert.deepEqual(jobs[0].referenceImages, [A]);
   assert.equal(jobs[0].model, 'qwen-image-3.0');
-  assert.ok(jobs[0].prompt.includes('成品只画这一个角色'));
+  assert.ok(jobs[0].prompt.includes('占全身高度约 40%'));
   // 也不该再去要风格图
   assert.equal(chibiCalls(fetcherCalls).length, 0);
 });
