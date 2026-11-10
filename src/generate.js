@@ -215,6 +215,11 @@ function planShot({ kind, snapshot, randomSeed, used, maxReferences = 10 }) {
     }
     return { seed: takeSeed(randomSeed, used), referenceImages: [], hasReference: false };
   }
+  // 第二阶段的姿势变体：参考图是第一阶段的 Q 版产物（step 令牌或 dataUrl）。
+  if (kind === 'Q版站姿' || kind === 'Q版坐姿') {
+    const source = snapshot.chibiSource || null;
+    return { seed: takeSeed(randomSeed, used), referenceImages: source ? [source] : [], hasReference: Boolean(source) };
+  }
   // 热门Q版：身份只来自用户现场上传的那 1 张正比立绘，不吃锁定基准。
   // 风格图由 buildStep 追加 1 张，排在正比图之后（图 3）。
   if (kind === '热门Q版') {
@@ -276,7 +281,8 @@ async function buildStep({
   const styleCount = 0;
   // 基准立绘本身用当前表单生成（它才是新角色的来源）；其余后续图优先用锁定基准保存的配置。
   const isBase = kind === '基准立绘';
-  const isChibiKind = kind === 'Q版形象' || kind === '热门Q版';
+  // 四个 Q 版相关图种都按实测配方走 2k。
+  const isChibiKind = ['Q版形象', '热门Q版', 'Q版站姿', 'Q版坐姿'].includes(kind);
   const locked = isBase ? null : lockedCharacterState(snapshot, kind);
   // 瞳色是「我现在要的颜色」，不是「基准图当年配的色」：永远取当前表单，
   // 否则老基准的 state 里没有这个字段，用户改了瞳色后续图也吃不到。
@@ -458,6 +464,43 @@ export async function executePlanLocally(plan, {
 // 进度文案：中文图种名原样，方便直接拼“正在生成三视图…”。
 export function stepLabel(step) {
   return step && step.kind ? step.kind : '图片';
+}
+
+// 热门Q版：两阶段。第一阶段把正比立绘重画成 Q 版（会连立绘的动作一起搬过来），
+// 第二阶段拿第一张 Q 版当参考，只换姿势出「站姿」与「坐姿」两张。
+// 第二阶段用 `step:0` 令牌引用第一阶段的产物，wave=1 保证一定在第一阶段之后跑。
+export async function buildHotChibiPlan({
+  state, images = {}, gallery, hots = [], count = 1,
+  model = CHIBI_IMAGE_MODEL, randomSeed = defaultSeed,
+}) {
+  const upload = (Array.isArray(hots) ? hots : []).filter(Boolean).slice(0, 1);
+  const total = Math.min(4, Math.max(1, Number.isInteger(count) ? count : 1));
+  const used = new Set();
+  const steps = [];
+  const baseSnapshot = { upload: upload[0] || null, base: null, clothingPair: null, hots: upload };
+  for (let i = 0; i < total; i += 1) {
+    steps.push(await buildStep({
+      kind: '热门Q版', state, snapshot: baseSnapshot, randomSeed, used,
+      batchId: newBatchId(), base: null, model,
+    }));
+  }
+  // 第二阶段只从第一张 Q 版出发：再多张也只是同一个角色的重复，不值得翻倍付费。
+  for (const pose of ['站姿', '坐姿']) {
+    const step = await buildStep({
+      kind: `Q版${pose}`, title: `Q版${pose}`, state,
+      snapshot: { upload: null, base: null, clothingPair: null, chibiSource: `${STEP_TOKEN_PREFIX}0` },
+      randomSeed, used, batchId: newBatchId(), base: null, model,
+    });
+    step.wave = 1;
+    steps.push(step);
+  }
+  return makePlan({
+    title: '生成热门Q版（含站姿/坐姿）',
+    unit: '张',
+    steps,
+    stamps: [{ indices: steps.map((_, index) => index), base: null, sort: null }],
+    tolerateErrors: true,
+  });
 }
 
 // ---------------- 计划构建：三种任务 ----------------

@@ -16,7 +16,8 @@ export const TUNE_IMAGE_MODEL = 'gemini-3-pro-image-c';
 
 export function modelForGenerate(kind) {
   // 基准立绘、Q版形象、热门Q版都走千问：Q 版头身与脸型更贴二次元手办感。
-  if (kind === '基准立绘' || kind === 'Q版形象' || kind === '热门Q版') return BASE_IMAGE_MODEL;
+  if (kind === '基准立绘' || kind === 'Q版形象' || kind === '热门Q版'
+    || kind === 'Q版站姿' || kind === 'Q版坐姿') return BASE_IMAGE_MODEL;
   return SUITE_IMAGE_MODEL;
 }
 

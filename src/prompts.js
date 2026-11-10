@@ -7,7 +7,7 @@ import {
 } from './catalog.js';
 import { clothingExclusions, clothingTerms } from './clothing.js';
 
-export const KINDS = ['基准立绘', '三视图', '表情差分图', '服饰拆解图', '手部拆解图', 'Q版形象', '热门Q版'];
+export const KINDS = ['基准立绘', '三视图', '表情差分图', '服饰拆解图', '手部拆解图', 'Q版形象', '热门Q版', 'Q版站姿', 'Q版坐姿'];
 
 const LOCK_SENTENCE = '(same face as reference:1.5)';
 
@@ -45,6 +45,7 @@ const CHIBI_PORTRAIT_POSITIVE = [
   '· 眼睛非常大，高度约占脸高的 40%，眼位偏下。',
   '【脸型】圆润的椭圆：两侧脸颊微微圆一点点，脸颊有柔和的软肉感，下颌柔和收进去；但不要变成胖脸，脸不能宽、不能短。',
   '【保留参考图的信息】发型、发色渐变、瞳色、肤色、五官特征；服装的款式、层次、配色、配饰、鞋。',
+  '【手持物】参考图里如果角色手上有武器或道具，也一并保留：按原样握在手里或挂在身上，不要丢掉、不要换成别的东西。',
   '画风：Q 版动漫，干净线稿，cel 着色，柔和均匀布光，高细节。',
 ].join('\n');
 
@@ -66,6 +67,44 @@ function chibiBackdropSentence(state) {
     return `${head}背景纯色（${hex}），均匀平整、无渐变无阴影。`;
   }
   return `${head}背景纯白，均匀平整、无渐变无阴影。`;
+}
+
+// 第二阶段：拿第一阶段的 Q 版当参考，只换姿势。
+// 第一阶段常常把立绘的动作一起搬过来（尤其手持武器的角色），所以这里把「只改姿势」写死，
+// 其余（长相、发型发色、瞳色、服装、配饰、鞋、画风、头身比、构图、背景）逐项声明不变。
+const CHIBI_POSE_SPECS = {
+  站姿: {
+    clause: '新姿势：站姿，正面朝前，双脚并拢站直，双手自然垂放在身体两侧，手肘放松，肩膀放平。',
+    prop: '参考图里如果有武器或道具，请继续带着：自然地握在手里或靠在身侧；不要凭空消失，也不要换成别的物件。',
+    negative: '叉腰，抱胸，双手举高，双手插兜，坐在地上，跪在地上，躺下',
+  },
+  坐姿: {
+    clause: '新姿势：正坐（跪坐），双膝并拢、小腿并排放在身下、臀部坐在脚跟上，上身挺直，双手自然放在大腿上。',
+    prop: '参考图里如果有武器或道具，请继续带着：放在腿上或身侧；不要凭空消失，也不要换成别的物件。',
+    negative: '站立，站直，躺下，趴下，双腿分开坐着，跷二郎腿',
+  },
+};
+
+function buildChibiPosePrompt(state, pose) {
+  const spec = CHIBI_POSE_SPECS[pose] || CHIBI_POSE_SPECS.站姿;
+  const positive = [
+    '图 1 是这个角色的 Q 版全身立绘。',
+    '保持图 1 里的人物长相、五官、发型与发色、瞳色、服装与配饰、鞋、画风、头身比与构图完全不变，只改变姿势。',
+    spec.clause,
+    spec.prop,
+    '画风：Q 版动漫，干净线稿，cel 着色，柔和均匀布光，高细节。',
+    chibiBackdropSentence(state),
+  ].join('\n');
+  const eye = eyeColorClause(state);
+  const negative = [
+    '改变比例，拉长腿，变高，头变小，头变大，脸型改变，换衣服，换发色，换瞳色，多人，半身，裁切，文字，水印，模糊，背景杂物，复杂背景，渐变背景',
+    spec.negative,
+  ].join('，');
+  return {
+    positive: eye ? `${positive}\n${eye}` : positive,
+    negative,
+    aspect: '1:1',
+  };
 }
 
 function chibiPortraitPrompt(state) {
@@ -509,7 +548,7 @@ function withSheetBackground(built, state) {
 export function buildPrompt(state, kind, opts = {}) {
   const built = buildPromptCore(state, kind, opts);
   // 两个 Q 版图种的背景由 chibiBackdropSentence 自己写死，不再走外层白底改写。
-  if (kind === 'Q版形象' || kind === '热门Q版') return built;
+  if (kind === 'Q版形象' || kind === '热门Q版' || kind === 'Q版站姿' || kind === 'Q版坐姿') return built;
   return withSheetBackground(built, state);
 }
 
@@ -565,6 +604,10 @@ function buildPromptCore(state, kind, { hasReference = false, styleCount = 0, ch
   // 出处：E:\图片\AI_Assets\正比转Q版.txt（2026-11-09 验证；qwen-image-3.0 / 2k / prompt_extend=False）
   if (kind === 'Q版形象' || kind === '热门Q版') {
     return chibiPortraitPrompt(state);
+  }
+  // 第二阶段的姿势变体：参考图是第一阶段出的那张 Q 版。
+  if (kind === 'Q版站姿' || kind === 'Q版坐姿') {
+    return buildChibiPosePrompt(state, kind === 'Q版坐姿' ? '坐姿' : '站姿');
   }
   const collected = collect(state, tagSequence(kind, state), { skipFace: hasReference });
   const style = styleOf(state);

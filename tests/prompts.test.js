@@ -1041,3 +1041,27 @@ test('the legwear pick is ignored when socks are switched off', () => {
   assert.ok(p.positive.includes('no socks'));
   assert.equal(p.negative.includes('(missing socks:1.3)'), false);
 });
+
+// 第二阶段：拿第一阶段的 Q 版当参考，只换姿势。
+test('stage two only swaps the pose', () => {
+  const stand = buildPrompt(defaultState(), 'Q版站姿', { hasReference: true });
+  assert.ok(stand.positive.startsWith('图 1 是这个角色的 Q 版全身立绘。'));
+  assert.ok(stand.positive.includes('只改变姿势'));
+  assert.ok(stand.positive.includes('双手自然垂放在身体两侧'));
+  assert.ok(stand.negative.includes('坐在地上'));
+
+  const sit = buildPrompt(defaultState(), 'Q版坐姿', { hasReference: true });
+  assert.ok(sit.positive.includes('正坐（跪坐）'));
+  assert.ok(sit.positive.includes('双手自然放在大腿上'));
+  assert.ok(sit.negative.includes('站立'));
+  assert.equal(sit.aspect, '1:1');
+});
+
+test('stage one keeps whatever weapon or prop the reference holds', () => {
+  const p = buildPrompt(defaultState(), '热门Q版', { hasReference: true });
+  assert.ok(p.positive.includes('如果角色手上有武器或道具'));
+  assert.ok(p.positive.includes('不要丢掉'));
+  // 第二阶段的道具句按姿势区分：站着握在手里，坐着放在腿上。
+  assert.ok(buildPrompt(defaultState(), 'Q版站姿', {}).positive.includes('自然地握在手里或靠在身侧'));
+  assert.ok(buildPrompt(defaultState(), 'Q版坐姿', {}).positive.includes('放在腿上或身侧'));
+});

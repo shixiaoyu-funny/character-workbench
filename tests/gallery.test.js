@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createGallery, loadPersisted } from '../src/gallery.js';
-import { generateKind, generateSuite, requestImagesStream, browserStreamFetcher, isStopped } from '../src/generate.js';
+import { generateKind, generateSuite, buildHotChibiPlan, requestImagesStream, browserStreamFetcher, isStopped } from '../src/generate.js';
 import { BASE_IMAGE_MODEL, CHIBI_IMAGE_MODEL, SUITE_IMAGE_MODEL, TUNE_IMAGE_MODEL, modelForGenerate } from '../src/imageModels.js';
 import { defaultState } from '../src/state.js';
 
@@ -936,4 +936,28 @@ test('hot chibi ignores a second character sheet if one sneaks in', async () => 
     snapshot: { upload: null, base: null, clothingPair: null, hots: [A, B] },
   });
   assert.deepEqual(jobsOf(streamCalls)[0].referenceImages, [A]);
+});
+
+// 热门Q版两阶段：先出 Q 版，再以它为参考换出站姿与坐姿。
+test('hot chibi plans the chibi first, then a standing and a seated pose', async () => {
+  const A = 'data:image/png;base64,HOTA';
+  const plan = await buildHotChibiPlan({ state: defaultState(), hots: [A], count: 1, randomSeed: sequence(1) });
+  assert.deepEqual(plan.steps.map((step) => step.kind), ['热门Q版', 'Q版站姿', 'Q版坐姿']);
+  assert.deepEqual(plan.steps[0].ref, [{ kind: 'literal', value: A }]);
+  // 第二阶段引用第一阶段的产物，并排到第二波
+  assert.deepEqual(plan.steps[1].ref, [{ kind: 'step', index: 0 }]);
+  assert.deepEqual(plan.steps[2].ref, [{ kind: 'step', index: 0 }]);
+  assert.equal(plan.steps[1].wave, 1);
+  assert.equal(plan.steps[1].body.model, 'qwen-image-3.0');
+  assert.equal(plan.steps[1].body.resolution, '2k');
+  // 一次提交、最后合成一个批次
+  assert.deepEqual(plan.stamps[0].indices, [0, 1, 2]);
+});
+
+test('the pose variants always follow the first chibi when several are requested', async () => {
+  const A = 'data:image/png;base64,HOTA';
+  const plan = await buildHotChibiPlan({ state: defaultState(), hots: [A], count: 3, randomSeed: sequence(1) });
+  assert.equal(plan.steps.length, 5);
+  assert.deepEqual(plan.steps.slice(3).map((step) => step.kind), ['Q版站姿', 'Q版坐姿']);
+  assert.deepEqual(plan.steps[3].ref, [{ kind: 'step', index: 0 }]);
 });

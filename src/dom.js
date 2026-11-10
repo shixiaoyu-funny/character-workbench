@@ -4,7 +4,7 @@ import { OPTIONS, PRESETS, WU_VALUES } from './catalog.js';
 import { CONFIG_KEY, defaultState } from './state.js';
 import { FACE_BACKUP_KEY, unlockReference } from './face.js';
 import { dataUrlToBytes, imageFileName, makeFileKey, zipBatch, zipFiles } from './download.js';
-import { browserFetcher, browserStreamFetcher, buildKindPlan, buildSuitePlan, buildTunePlan, executePlanLocally, generateKind, generateSuite, generateTune, isPairSheet, isStopped, planToPayload, stepLabel } from './generate.js';
+import { browserFetcher, browserStreamFetcher, buildHotChibiPlan, buildKindPlan, buildSuitePlan, buildTunePlan, executePlanLocally, generateKind, generateSuite, generateTune, isPairSheet, isStopped, planToPayload, stepLabel } from './generate.js';
 import { BASE_IMAGE_MODEL, CHIBI_IMAGE_MODEL, SUITE_IMAGE_MODEL, TUNE_IMAGE_MODEL, imageModelById, modelForGenerate } from './imageModels.js';
 import { BED_POSES, tuneCombinations } from './prompts.js';
 import { loadPersisted } from './gallery.js';
@@ -3776,7 +3776,7 @@ async function startHotChibi(doc) {
   const report = (text) => { hot.status = text; paintLiveRegions(doc); };
   mounted.generating = true;
   mounted.liveItems = [];
-  report('正在生成热门Q版…');
+  report('正在生成 Q 版（第一阶段）…');
   paintHotPage(doc);
   // 该页不读工作台的设定表单：身份全部来自上传的正比图，这里只借 state 传风格与瞳色。
   const live = mounted.store.getState();
@@ -3787,14 +3787,12 @@ async function startHotChibi(doc) {
     sheetBgCustom: live.sheetBgCustom,
   };
   try {
-    const plan = await buildKindPlan({
-      kind: '热门Q版',
+    // 两阶段：先出 Q 版，再以它为参考换出「站姿 / 坐姿」两张。
+    const plan = await buildHotChibiPlan({
       state,
       gallery: mounted.gallery,
-      images: {},
-      fetcher: mounted.fetcher || browserFetcher,
-      snapshot: { upload: null, base: null, clothingPair: null, hots: [hot.a] },
-      baseCount: hot.count || 1,
+      hots: [hot.a],
+      count: hot.count || 1,
       model: modelForGenerate('热门Q版'),
     });
     await runPlanAsTask(doc, plan, { report, onImage: () => paintLiveRegions(doc) });

@@ -330,6 +330,7 @@ export function routeForTask(task) {
   if (task.kind === 'image') {
     const title = String(task.title || '');
     if (title.includes('微调')) return 'tune';
+    if (title.includes('热门Q版')) return 'hotchibi';
     return 'generate';
   }
   return 'generate';

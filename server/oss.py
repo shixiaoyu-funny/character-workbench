@@ -18,6 +18,8 @@ _KIND_SLUG = {
     "手部拆解图": "handsheet",
     "Q版形象": "chibi",
     "热门Q版": "hotchibi",
+    "Q版站姿": "chibi-stand",
+    "Q版坐姿": "chibi-seiza",
     "微调角色": "tune",
 }
 
